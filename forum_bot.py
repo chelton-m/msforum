@@ -19,7 +19,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
-import getpass
+
 
 # Configure logging
 logging.basicConfig(
@@ -184,18 +184,18 @@ class MicrosoftForumBot:
                 self._process_image_strategy_4,
                 self._process_image_strategy_5  # New strategy for digit-by-digit reading
             ]
-            
+
             for i, strategy in enumerate(strategies, 1):
                 try:
                     logger.info(f"Trying strategy {i}...")
                     processed_image = strategy(image)
-                    
+
                     # Special handling for strategy 5 (digit-by-digit)
                     if i == 5 and isinstance(processed_image, str):
                         captcha_text = processed_image
                     else:
                         captcha_text = self._extract_text_from_image(processed_image)
-                    
+
                     if captcha_text and len(captcha_text) >= 3:  # Minimum 3 digits
                         logger.info(f"✅ CAPTCHA read successfully with strategy {i}: {captcha_text}")
                         return captcha_text
@@ -204,27 +204,27 @@ class MicrosoftForumBot:
                 except Exception as e:
                     logger.warning(f"Strategy {i} failed: {e}")
                     continue
-            
+
             logger.warning("❌ All CAPTCHA reading strategies failed")
             return None
-                
+
         except Exception as e:
             logger.error(f"❌ Error reading CAPTCHA: {e}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             return None
-    
+
     def _process_image_strategy_1(self, image):
         """Strategy 1: Basic threshold processing with rotation correction"""
         opencv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
         gray = cv2.cvtColor(opencv_image, cv2.COLOR_BGR2GRAY)
-        
+
         # Try to correct rotation
         gray = self._correct_rotation(gray)
-        
+
         _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         return thresh
-    
+
     def _correct_rotation(self, gray_image):
         """Try to correct rotation in the image"""
         try:
@@ -251,20 +251,20 @@ class MicrosoftForumBot:
         except Exception as e:
             logger.warning(f"Rotation correction failed: {e}")
             return gray_image
-    
+
     def _process_image_strategy_2(self, image):
         """Strategy 2: Adaptive threshold with noise removal"""
         opencv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
         gray = cv2.cvtColor(opencv_image, cv2.COLOR_BGR2GRAY)
-        
+
         # Apply adaptive threshold
         thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
-        
+
         # Remove noise
         kernel = np.ones((2,2), np.uint8)
         cleaned = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
         return cleaned
-    
+
     def _process_image_strategy_3(self, image):
         """Strategy 3: High contrast processing"""
         opencv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
@@ -891,6 +891,69 @@ class MicrosoftForumBot:
             logger.error(f"Error selecting first checkbox: {e}")
             return 0
     
+    def enable_switch_button(self):
+        """
+        Enable the switch button if it exists and is disabled
+        Returns True if switch was found and enabled, False otherwise
+        """
+        try:
+            # Look for the ant-switch button
+            switch_selectors = [
+                "//button[@role='switch']",
+                "//button[contains(@class, 'ant-switch')]",
+                "button[role='switch']",
+                "button.ant-switch"
+            ]
+            
+            switch_button = None
+            for selector in switch_selectors:
+                try:
+                    if selector.startswith("//"):
+                        elements = self.driver.find_elements(By.XPATH, selector)
+                    else:
+                        elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    
+                    for element in elements:
+                        if element.is_displayed():
+                            switch_button = element
+                            logger.info(f"Found switch button with selector: {selector}")
+                            break
+                    
+                    if switch_button:
+                        break
+                except:
+                    continue
+            
+            if switch_button:
+                # Check if switch is already enabled (aria-checked="true")
+                aria_checked = switch_button.get_attribute("aria-checked")
+                if aria_checked == "true":
+                    logger.info("Switch button is already enabled")
+                    return True
+                else:
+                    logger.info("Switch button is disabled, enabling it...")
+                    # Scroll to button
+                    self.driver.execute_script("arguments[0].scrollIntoView(true);", switch_button)
+                    time.sleep(0.2)
+                    
+                    # Click the switch to enable it
+                    try:
+                        switch_button.click()
+                        logger.info("✅ Switch button enabled successfully")
+                        return True
+                    except:
+                        # If normal click fails, try JavaScript click
+                        self.driver.execute_script("arguments[0].click();", switch_button)
+                        logger.info("✅ Switch button enabled with JavaScript")
+                        return True
+            else:
+                logger.warning("Switch button not found - may not exist on this page")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error enabling switch button: {e}")
+            return False
+    
     def click_confirm(self):
         """
         Click the confirm button
@@ -931,7 +994,7 @@ class MicrosoftForumBot:
                 # Scroll to button if needed
                 self.driver.execute_script("arguments[0].scrollIntoView(true);", confirm_button)
                 time.sleep(0.2)
-                
+
                 # Try multiple click methods
                 try:
                     confirm_button.click()
@@ -940,28 +1003,27 @@ class MicrosoftForumBot:
                     # If normal click fails, try JavaScript click
                     self.driver.execute_script("arguments[0].click();", confirm_button)
                     logger.info("✅ Confirm button clicked with JavaScript")
-                
-                return True
+                                return True
             else:
                 logger.error("❌ Confirm button not found")
                 return False
-                
+    
         except Exception as e:
             logger.error(f"Error clicking confirm button: {e}")
             return False
-    
+
     def run_automation_cycle(self):
         """
         Run one complete automation cycle: navigate to forum, select checkboxes and click confirm
         """
         try:
             logger.info("Starting automation cycle")
-            
+
             # Navigate to the Microsoft Forum page
             logger.info(f"Navigating to {self.base_url}")
             self.driver.get(self.base_url)
             time.sleep(3)
-            
+
             # Check if we're logged in by looking for login elements
             try:
                 signin_elements = self.driver.find_elements(By.XPATH, "//button[contains(text(), 'Sign In')]")
@@ -1034,15 +1096,15 @@ class MicrosoftForumBot:
         """
         logger.info(f"Starting continuous monitoring with {interval_seconds} second intervals")
         logger.info("Press Ctrl+C to stop monitoring")
-        
+
         cycle_count = 0
         last_case_count = 0
-        
+
         while True:
             try:
                 cycle_count += 1
                 logger.info(f"🔍 Check #{cycle_count} - {time.strftime('%H:%M:%S')}")
-                
+
                 # Navigate to forum page
                 self.driver.get(self.base_url)
                 time.sleep(1)  # Wait for page to load
@@ -1090,7 +1152,7 @@ class MicrosoftForumBot:
                         "//div[@class='ant-table-container']//input[@type='checkbox']",
                         "//div[contains(@class, 'ant-table')]//input[@type='checkbox']"
                     ]
-                    
+
                     checkboxes = []
                     for selector in checkbox_selectors:
                         try:
@@ -1100,17 +1162,17 @@ class MicrosoftForumBot:
                                 break
                         except:
                             continue
-                    
+
                     # Count visible checkboxes properly
                     visible_checkboxes = [cb for cb in checkboxes if cb.is_displayed()]
                     current_case_count = len(visible_checkboxes)
                     logger.info(f"📊 Total cases found: {current_case_count}")
-                    
+
                     # Debug: show details of each checkbox
                     for i, cb in enumerate(visible_checkboxes):
                         is_selected = cb.is_selected()
                         logger.info(f"  Checkbox {i+1}: selected={is_selected}")
-                    
+
                     # If no checkboxes found, show debugging info
                     if current_case_count == 0:
                         logger.warning("No checkboxes found - debugging page content...")
@@ -1123,15 +1185,15 @@ class MicrosoftForumBot:
                                     input_class = inp.get_attribute('class')
                                     input_id = inp.get_attribute('id')
                                     logger.info(f"  Input {i+1}: type='{input_type}', class='{input_class}', id='{input_id}'")
-                            
+
                             # Also check current URL
                             current_url = self.driver.current_url
                             logger.info(f"Current URL: {current_url}")
-                            
+
                             # Check page title
                             page_title = self.driver.title
                             logger.info(f"Page title: {page_title}")
-                            
+
                             # Check for any elements with 'checkbox' in class name
                             checkbox_elements = self.driver.find_elements(By.XPATH, "//*[contains(@class, 'checkbox')]")
                             logger.info(f"Found {len(checkbox_elements)} elements with 'checkbox' in class:")
@@ -1140,34 +1202,37 @@ class MicrosoftForumBot:
                                     tag_name = elem.tag_name
                                     elem_class = elem.get_attribute('class')
                                     logger.info(f"  Element {i+1}: <{tag_name}> class='{elem_class}'")
-                            
+
                             # Check for any table or list elements
                             tables = self.driver.find_elements(By.TAG_NAME, "table")
                             logger.info(f"Found {len(tables)} table elements")
-                            
+
                             # Check page source for 'checkbox' text
                             page_source = self.driver.page_source
                             if 'checkbox' in page_source.lower():
                                 logger.info("✅ Found 'checkbox' text in page source")
                             else:
                                 logger.warning("❌ No 'checkbox' text found in page source")
-                            
+
                         except Exception as e:
                             logger.warning(f"Error listing inputs: {e}")
-                    
+
                     if current_case_count > 0:
                         if current_case_count != last_case_count:
                             logger.info(f"🆕 New cases detected! ({last_case_count} → {current_case_count})")
                             last_case_count = current_case_count
-                        
+
                         logger.info("Processing cases...")
-                        
+
+                        # First, try to enable the switch button if it exists
+                        self.enable_switch_button()
+
                         # Select all checkboxes
                         selected_count = self.select_first_checkbox()
-                        
+
                         if selected_count > 0:
                             logger.info(f"Selected {selected_count} checkboxes")
-                            
+
                             # Click confirm
                             if self.click_confirm():
                                 logger.info("Confirmed successfully!")
@@ -1178,13 +1243,13 @@ class MicrosoftForumBot:
                     else:
                         logger.info("No cases found")
                         last_case_count = 0
-                        
+
                 except Exception as e:
                     logger.error(f"Error checking cases: {e}")
-                
+
                 logger.info(f"Waiting {interval_seconds} second(s)...")
                 time.sleep(interval_seconds)
-                
+
             except KeyboardInterrupt:
                 logger.info("Monitoring stopped by user")
                 break
@@ -1192,42 +1257,40 @@ class MicrosoftForumBot:
                 logger.error(f"Error in monitoring cycle: {e}")
                 logger.info("Retrying in 5 seconds...")
                 time.sleep(5)
-    
+
     def close(self):
         """Close the browser and cleanup"""
         if self.driver:
             self.driver.quit()
             logger.info("Browser closed")
 
+
 def main():
     """Main function to run the bot"""
     print("Microsoft Forum Automation Bot")
     print("=" * 40)
-    
+
     # Hardcoded credentials
     username = "henry.mai"
     password = "abc@123456"
-    
+
     # Always run with browser visible for CAPTCHA entry
     headless = False
     print("Browser will be visible for CAPTCHA entry")
-    
-    # Fixed interval
-    interval = 60
-    
+
     # Initialize and run bot
     bot = MicrosoftForumBot(headless=headless)
-    
+
     try:
         bot.setup_driver()
-        
+
         # Login with verification code handling
         login_success = bot.login(username, password)
-        
+
         if not login_success:
             print("Login failed. Please check your credentials and try again.")
             return
-        
+
         # Start continuous monitoring (1 second intervals)
         print("\nStarting continuous monitoring...")
         print("Checking for cases every 1 second...")
@@ -1238,6 +1301,7 @@ def main():
         logger.error(f"Bot execution failed: {e}")
     finally:
         bot.close()
+
 
 if __name__ == "__main__":
     main()
