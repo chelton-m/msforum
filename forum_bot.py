@@ -15,7 +15,6 @@ import pytesseract
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
@@ -29,11 +28,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
 class MicrosoftForumBot:
     def __init__(self, headless=False):
         """
         Initialize the bot with Chrome WebDriver
-        
+
         Args:
             headless (bool): Run browser in headless mode
         """
@@ -41,7 +41,7 @@ class MicrosoftForumBot:
         self.wait = None
         self.headless = headless
         self.base_url = "https://ixpt.itechwx.com/MicrosoftForum"
-        
+
         # Configure Tesseract OCR (you may need to adjust the path)
         try:
             # Try common Tesseract paths
@@ -51,7 +51,7 @@ class MicrosoftForumBot:
                 '/usr/bin/tesseract',
                 'tesseract'  # If it's in PATH
             ]
-            
+
             for path in tesseract_paths:
                 try:
                     pytesseract.pytesseract.tesseract_cmd = path
@@ -65,32 +65,32 @@ class MicrosoftForumBot:
                 logger.warning("Tesseract not found. CAPTCHA reading will not work.")
         except Exception as e:
             logger.warning(f"Tesseract configuration failed: {e}")
-    
+
     def read_captcha_from_canvas(self):
         """
         Read CAPTCHA text from canvas element using OCR with multiple strategies
-        
+
         Returns:
             str: The CAPTCHA text, or None if reading failed
         """
         try:
             logger.info("Starting CAPTCHA detection...")
-            
+
             # Wait for page to fully load
             time.sleep(2)
-            
+
             # Find the canvas element with multiple strategies
             # Look for canvas elements specifically first
             canvas_selectors = [
                 "canvas",
             ]
-            
+
             # First try canvas elements only
             for selector in canvas_selectors:
                 try:
                     elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
                     logger.info(f"Found {len(elements)} elements with selector: {selector}")
-                    
+
                     for element in elements:
                         try:
                             if element.is_displayed():
@@ -99,19 +99,18 @@ class MicrosoftForumBot:
                                 # Canvas should be relatively small (CAPTCHA size)
                                 if size['width'] > 20 and size['width'] < 200 and size['height'] > 10 and size['height'] < 100:
                                     canvas_element = element
-                                    found_selector = selector
                                     logger.info(f"✅ Found CAPTCHA canvas element")
                                     break
                         except Exception as e:
                             logger.warning(f"Error checking element: {e}")
                             continue
-                    
+
                     if canvas_element:
                         break
                 except Exception as e:
                     logger.warning(f"Error with selector {selector}: {e}")
                     continue
-            
+
             # If canvas not found, try img elements as fallback
             if not canvas_element:
                 img_selectors = [
@@ -124,7 +123,7 @@ class MicrosoftForumBot:
                     try:
                         elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
                         logger.info(f"Found {len(elements)} elements with selector: {selector}")
-                        
+
                         for element in elements:
                             try:
                                 if element.is_displayed():
@@ -132,19 +131,17 @@ class MicrosoftForumBot:
                                     logger.info(f"Img element size: {size}")
                                     if size['width'] > 20 and size['width'] < 200 and size['height'] > 10 and size['height'] < 100:
                                         canvas_element = element
-                                        found_selector = selector
                                         logger.info(f"✅ Found CAPTCHA img element")
                                         break
                             except Exception as e:
                                 logger.warning(f"Error checking element: {e}")
                                 continue
-                        
+
                         if canvas_element:
                             break
                     except Exception as e:
                         logger.warning(f"Error with selector {selector}: {e}")
                         continue
-            
             if not canvas_element:
                 logger.error("❌ CAPTCHA canvas element not found")
                 # Let's try to find any image-like element
@@ -158,7 +155,7 @@ class MicrosoftForumBot:
                 except Exception as e:
                     logger.warning(f"Error listing images: {e}")
                 return None
-            
+
             # Scroll to element to ensure it's fully visible
             self.driver.execute_script("arguments[0].scrollIntoView(true);", canvas_element)
             time.sleep(1)
@@ -233,15 +230,15 @@ class MicrosoftForumBot:
         try:
             # Find contours
             contours, _ = cv2.findContours(gray_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            
+
             if contours:
                 # Get the largest contour (likely the text)
                 largest_contour = max(contours, key=cv2.contourArea)
-                
+
                 # Get the minimum area rectangle
                 rect = cv2.minAreaRect(largest_contour)
                 angle = rect[2]
-                
+
                 # Correct the angle if it's significant
                 if abs(angle) > 5:
                     # Rotate the image to correct the angle
@@ -249,7 +246,7 @@ class MicrosoftForumBot:
                     center = (w // 2, h // 2)
                     M = cv2.getRotationMatrix2D(center, -angle, 1.0)
                     gray_image = cv2.warpAffine(gray_image, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
-            
+
             return gray_image
         except Exception as e:
             logger.warning(f"Rotation correction failed: {e}")
@@ -337,15 +334,15 @@ class MicrosoftForumBot:
                 # Method 4: Inverted adaptive
                 thresh4 = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
                                                cv2.THRESH_BINARY_INV, 11, 2)
-                
+
                 thresh_options = [thresh1, thresh2, thresh3, thresh4]
-                
+
                 # Try each threshold method
                 for thresh_idx, thresh in enumerate(thresh_options):
                     try:
                         # Find contours to separate individual digits
                         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                        
+
                         # Filter contours by size (should be roughly digit-sized)
                         digit_contours = []
                         for contour in contours:
@@ -353,26 +350,26 @@ class MicrosoftForumBot:
                             # Filter by size - digits should be reasonable size
                             if w > 8 and h > 12 and w < 40 and h < 35:
                                 digit_contours.append((x, y, w, h, contour))
-                        
+
                         # Sort by x position (left to right)
                         digit_contours.sort(key=lambda x: x[0])
-                        
+
                         # Extract individual digits
                         digits = []
                         for x, y, w, h, contour in digit_contours:
                             # Extract the digit region
                             digit_roi = thresh[y:y+h, x:x+w]
-                            
+
                             # Resize to standard size for better OCR
                             digit_roi = cv2.resize(digit_roi, (20, 30))
-                            
+
                             # Use OCR on individual digit with multiple configs
                             digit_configs = [
                                 r'--oem 3 --psm 10 -c tessedit_char_whitelist=0123456789',
                                 r'--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789',
                                 r'--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789'
                             ]
-                            
+
                             digit_text = None
                             for config in digit_configs:
                                 try:
@@ -698,41 +695,41 @@ class MicrosoftForumBot:
             logger.info("Entering password...")
             password_field.clear()
             password_field.send_keys(password)
-            
+
             # Handle verification code - READ USING OCR with retry logic
             if verification_code is None:
                 max_retries = 3
                 verification_code = None
-                
+
                 for attempt in range(1, max_retries + 1):
                     logger.info(f"Attempting to read CAPTCHA using OCR (attempt {attempt}/{max_retries})...")
-                    
+
                     # Try to read CAPTCHA from canvas
                     verification_code = self.read_captcha_from_canvas()
-                    
+
                     # If canvas OCR failed, try alternative methods
                     if not verification_code:
                         logger.info("Canvas OCR failed, trying alternative method...")
                         verification_code = self.read_captcha_from_img()
-                    
+
                     # If we successfully read it, break
                     if verification_code:
                         logger.info(f"✅ CAPTCHA read successfully using OCR: {verification_code}")
                         break
                     else:
                         logger.warning(f"Attempt {attempt} failed to read CAPTCHA")
-                        
+
                         # If not the last attempt, try to refresh CAPTCHA and retry
                         if attempt < max_retries:
                             logger.info("Refreshing CAPTCHA and trying again...")
                             self.refresh_captcha()
                             time.sleep(2)  # Wait for new CAPTCHA to load
-                
+
                 # If still failed after all retries, allow manual input as fallback
                 if not verification_code:
                     logger.warning("❌ OCR failed to read CAPTCHA after all retries")
                     logger.info("Please manually enter the CAPTCHA code shown in the browser.")
-                    
+
                     try:
                         verification_code = input("Enter the CAPTCHA code from the browser: ").strip()
                         if verification_code and len(verification_code) >= 3:
@@ -996,43 +993,44 @@ class MicrosoftForumBot:
     def run_continuous(self, interval_seconds=60):
         """
         Run automation continuously with specified interval
-        
+
         Args:
             interval_seconds (int): Time between automation cycles in seconds
         """
         logger.info(f"Starting continuous automation with {interval_seconds} second intervals")
-        
+
         cycle_count = 0
         while True:
             try:
                 cycle_count += 1
                 logger.info(f"Starting cycle {cycle_count}")
-                
+
                 # Run one automation cycle
                 success = self.run_automation_cycle()
-                
+
                 if success:
                     logger.info(f"Cycle {cycle_count} completed successfully")
                 else:
                     logger.warning(f"Cycle {cycle_count} had issues")
-                
+
                 # Wait for next cycle
                 logger.info(f"Waiting {interval_seconds} seconds before next cycle...")
                 time.sleep(interval_seconds)
-                
+
             except KeyboardInterrupt:
                 logger.info("Automation stopped by user")
                 break
             except Exception as e:
                 logger.error(f"Unexpected error in cycle {cycle_count}: {e}")
                 time.sleep(5)  # Short wait before retrying
-    
-    def continuous_monitor(self, interval_seconds=1):
+
+    def continuous_monitor(self, interval_seconds=1, username=None, password=None):
         """
         Continuously monitor for new cases with specified interval
-        
         Args:
             interval_seconds (int): Time between checks in seconds (default: 1)
+            username (str): Username for auto-login if session expires
+            password (str): Password for auto-login if session expires
         """
         logger.info(f"Starting continuous monitoring with {interval_seconds} second intervals")
         logger.info("Press Ctrl+C to stop monitoring")
@@ -1052,11 +1050,37 @@ class MicrosoftForumBot:
                 # Check if we're still logged in
                 current_url = self.driver.current_url
                 if "login" in current_url:
-                    logger.warning("❌ Not logged in - redirecting to login page")
+                    logger.warning("❌ Not logged in - session expired or logged out")
+
+                    # Only attempt auto-login if credentials are provided
+                    if username and password:
+                        logger.info("Attempting to re-login automatically...")
+
+                        # Try to login automatically
+                        try:
+                            login_success = self.login(username, password)
+                            if login_success:
+                                logger.info("✅ Successfully logged in again")
+                                time.sleep(3)  # Wait for redirect
+
+                                # Navigate back to forum page
+                                self.driver.get(self.base_url)
+                                time.sleep(2)
+                                continue
+                            else:
+                                logger.error("❌ Auto-login failed")
+                        except Exception as e:
+                            logger.error(f"Error during auto-login: {e}")
+
+                    # If auto-login failed or no credentials provided, wait for manual login
                     logger.info("Please login manually in the browser window")
                     time.sleep(10)  # Wait for manual login
+
+                    # Navigate back to forum page after manual login
+                    self.driver.get(self.base_url)
+                    time.sleep(2)
                     continue
-                
+
                 # Check for checkboxes (cases) - use same selectors as select_first_checkbox
                 try:
                     # Use the same selectors as select_first_checkbox function - simple working selectors
@@ -1208,8 +1232,8 @@ def main():
         print("\nStarting continuous monitoring...")
         print("Checking for cases every 1 second...")
         print("Press Ctrl+C to stop")
-        bot.continuous_monitor(1)  # 1 second intervals
-            
+        bot.continuous_monitor(1, username, password)  # 1 second intervals with credentials
+
     except Exception as e:
         logger.error(f"Bot execution failed: {e}")
     finally:
