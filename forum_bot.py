@@ -80,22 +80,12 @@ class MicrosoftForumBot:
             time.sleep(2)
             
             # Find the canvas element with multiple strategies
+            # Look for canvas elements specifically first
             canvas_selectors = [
                 "canvas",
-                "img[src*='captcha']",
-                "img[src*='verification']",
-                "div[style*='background']",
-                "div[class*='captcha']",
-                "div[class*='verification']",
-                "div[id*='captcha']",
-                "div[id*='verification']",
-                "img[alt*='captcha']",
-                "img[alt*='verification']"
             ]
             
-            canvas_element = None
-            found_selector = None
-            
+            # First try canvas elements only
             for selector in canvas_selectors:
                 try:
                     elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
@@ -103,14 +93,14 @@ class MicrosoftForumBot:
                     
                     for element in elements:
                         try:
-                            # Check if element is visible and has reasonable size
                             if element.is_displayed():
                                 size = element.size
-                                logger.info(f"Element size: {size}")
-                                if size['width'] > 30 and size['height'] > 15:
+                                logger.info(f"Canvas element size: {size}")
+                                # Canvas should be relatively small (CAPTCHA size)
+                                if size['width'] > 20 and size['width'] < 200 and size['height'] > 10 and size['height'] < 100:
                                     canvas_element = element
                                     found_selector = selector
-                                    logger.info(f"✅ Found CAPTCHA element with selector: {selector}")
+                                    logger.info(f"✅ Found CAPTCHA canvas element")
                                     break
                         except Exception as e:
                             logger.warning(f"Error checking element: {e}")
@@ -121,6 +111,39 @@ class MicrosoftForumBot:
                 except Exception as e:
                     logger.warning(f"Error with selector {selector}: {e}")
                     continue
+            
+            # If canvas not found, try img elements as fallback
+            if not canvas_element:
+                img_selectors = [
+                    "img[src*='captcha']",
+                    "img[src*='verification']",
+                    "img[alt*='captcha']",
+                    "img[alt*='verification']"
+                ]
+                for selector in img_selectors:
+                    try:
+                        elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                        logger.info(f"Found {len(elements)} elements with selector: {selector}")
+                        
+                        for element in elements:
+                            try:
+                                if element.is_displayed():
+                                    size = element.size
+                                    logger.info(f"Img element size: {size}")
+                                    if size['width'] > 20 and size['width'] < 200 and size['height'] > 10 and size['height'] < 100:
+                                        canvas_element = element
+                                        found_selector = selector
+                                        logger.info(f"✅ Found CAPTCHA img element")
+                                        break
+                            except Exception as e:
+                                logger.warning(f"Error checking element: {e}")
+                                continue
+                        
+                        if canvas_element:
+                            break
+                    except Exception as e:
+                        logger.warning(f"Error with selector {selector}: {e}")
+                        continue
             
             if not canvas_element:
                 logger.error("❌ CAPTCHA canvas element not found")
@@ -289,7 +312,9 @@ class MicrosoftForumBot:
             opencv_image[:, :, 1],
             # Strategy 4: Extract blue channel (for blue digits)
             opencv_image[:, :, 0],
-            # Strategy 5: Convert to HSV and extract value channel
+            # Strategy 5: Convert to LAB and extract L channel (better for color separation)
+            cv2.cvtColor(opencv_image, cv2.COLOR_BGR2LAB)[:, :, 0],
+            # Strategy 6: Convert to HSV and extract value channel
             cv2.cvtColor(opencv_image, cv2.COLOR_BGR2HSV)[:, :, 2]
         ]
         
@@ -298,61 +323,81 @@ class MicrosoftForumBot:
         
         for i, gray in enumerate(strategies):
             try:
-                # Apply threshold
-                _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                # Try multiple threshold methods
+                # Method 1: OTSU threshold
+                _, thresh1 = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
                 
-                # Find contours to separate individual digits
-                contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                # Method 2: Adaptive threshold for better handling of varying lighting
+                thresh2 = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                               cv2.THRESH_BINARY, 11, 2)
                 
-                # Filter contours by size (should be roughly digit-sized)
-                digit_contours = []
-                for contour in contours:
-                    x, y, w, h = cv2.boundingRect(contour)
-                    # Filter by size - digits should be reasonable size
-                    if w > 8 and h > 12 and w < 40 and h < 35:
-                        digit_contours.append((x, y, w, h, contour))
+                # Method 3: Inverted OTSU
+                _, thresh3 = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
                 
-                # Sort by x position (left to right)
-                digit_contours.sort(key=lambda x: x[0])
+                # Method 4: Inverted adaptive
+                thresh4 = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                               cv2.THRESH_BINARY_INV, 11, 2)
                 
-                # Extract individual digits
-                digits = []
-                for x, y, w, h, contour in digit_contours:
-                    # Extract the digit region
-                    digit_roi = thresh[y:y+h, x:x+w]
-                    
-                    # Resize to standard size for better OCR
-                    digit_roi = cv2.resize(digit_roi, (20, 30))
-                    
-                    # Use OCR on individual digit with multiple configs
-                    digit_configs = [
-                        r'--oem 3 --psm 10 -c tessedit_char_whitelist=0123456789',
-                        r'--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789',
-                        r'--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789'
-                    ]
-                    
-                    digit_text = None
-                    for config in digit_configs:
-                        try:
-                            result = pytesseract.image_to_string(digit_roi, config=config).strip()
-                            result = ''.join(filter(str.isdigit, result))
-                            if result and len(result) == 1:
-                                digit_text = result
-                                break
-                        except:
-                            continue
-                    
-                    if digit_text:
-                        digits.append(digit_text)
+                thresh_options = [thresh1, thresh2, thresh3, thresh4]
                 
-                # Combine digits in order
-                if digits and len(digits) >= 3:
-                    combined = ''.join(digits)
-                    confidence = len(digits)  # More digits = higher confidence
-                    if confidence > best_confidence:
-                        best_result = combined
-                        best_confidence = confidence
-                        logger.info(f"Strategy {i+1} digit-by-digit reading result: {combined} (confidence: {confidence})")
+                # Try each threshold method
+                for thresh_idx, thresh in enumerate(thresh_options):
+                    try:
+                        # Find contours to separate individual digits
+                        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        
+                        # Filter contours by size (should be roughly digit-sized)
+                        digit_contours = []
+                        for contour in contours:
+                            x, y, w, h = cv2.boundingRect(contour)
+                            # Filter by size - digits should be reasonable size
+                            if w > 8 and h > 12 and w < 40 and h < 35:
+                                digit_contours.append((x, y, w, h, contour))
+                        
+                        # Sort by x position (left to right)
+                        digit_contours.sort(key=lambda x: x[0])
+                        
+                        # Extract individual digits
+                        digits = []
+                        for x, y, w, h, contour in digit_contours:
+                            # Extract the digit region
+                            digit_roi = thresh[y:y+h, x:x+w]
+                            
+                            # Resize to standard size for better OCR
+                            digit_roi = cv2.resize(digit_roi, (20, 30))
+                            
+                            # Use OCR on individual digit with multiple configs
+                            digit_configs = [
+                                r'--oem 3 --psm 10 -c tessedit_char_whitelist=0123456789',
+                                r'--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789',
+                                r'--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789'
+                            ]
+                            
+                            digit_text = None
+                            for config in digit_configs:
+                                try:
+                                    result = pytesseract.image_to_string(digit_roi, config=config).strip()
+                                    result = ''.join(filter(str.isdigit, result))
+                                    if result and len(result) == 1:
+                                        digit_text = result
+                                        break
+                                except:
+                                    continue
+                            
+                            if digit_text:
+                                digits.append(digit_text)
+                        
+                        # Combine digits in order - CAPTCHA should be exactly 4 digits
+                        if digits and len(digits) == 4:
+                            combined = ''.join(digits)
+                            confidence = len(digits)  # More digits = higher confidence
+                            if confidence > best_confidence:
+                                best_result = combined
+                                best_confidence = confidence
+                                logger.info(f"Strategy {i+1} digit-by-digit reading result: {combined} (confidence: {confidence})")
+                    except Exception as e:
+                        logger.warning(f"Threshold method {thresh_idx+1} failed: {e}")
+                        continue
                 
             except Exception as e:
                 logger.warning(f"Strategy {i+1} failed: {e}")
@@ -387,7 +432,8 @@ class MicrosoftForumBot:
                 captcha_text = ''.join(filter(str.isdigit, captcha_text))
                 logger.info(f"Cleaned OCR result: '{captcha_text}'")
                 
-                if captcha_text and len(captcha_text) >= 3:
+                # CAPTCHA should be exactly 4 digits
+                if captcha_text and len(captcha_text) == 4:
                     logger.info(f"✅ Valid CAPTCHA found: {captcha_text}")
                     return captcha_text
                 else:
@@ -529,7 +575,7 @@ class MicrosoftForumBot:
         Args:
             username (str): Username for login
             password (str): Password for login
-            verification_code (str): Canvas-based verification code (if None, will prompt user)
+            verification_code (str): Canvas-based verification code (if None, will read using OCR)
         """
         try:
             # Navigate to login page first
@@ -653,25 +699,53 @@ class MicrosoftForumBot:
             password_field.clear()
             password_field.send_keys(password)
             
-            # Handle verification code - MANUAL ENTRY (more reliable)
+            # Handle verification code - READ USING OCR with retry logic
             if verification_code is None:
-                logger.info("Please manually enter the CAPTCHA code shown in the browser.")
-                logger.info("Look at the browser window and type the CAPTCHA code.")
+                max_retries = 3
+                verification_code = None
                 
-                # Keep browser open and wait for manual input
-                try:
-                    verification_code = input("Enter the CAPTCHA code from the browser: ").strip()
-                    if verification_code and len(verification_code) >= 3:
-                        logger.info(f"Using manually entered CAPTCHA: {verification_code}")
+                for attempt in range(1, max_retries + 1):
+                    logger.info(f"Attempting to read CAPTCHA using OCR (attempt {attempt}/{max_retries})...")
+                    
+                    # Try to read CAPTCHA from canvas
+                    verification_code = self.read_captcha_from_canvas()
+                    
+                    # If canvas OCR failed, try alternative methods
+                    if not verification_code:
+                        logger.info("Canvas OCR failed, trying alternative method...")
+                        verification_code = self.read_captcha_from_img()
+                    
+                    # If we successfully read it, break
+                    if verification_code:
+                        logger.info(f"✅ CAPTCHA read successfully using OCR: {verification_code}")
+                        break
                     else:
-                        logger.error("Invalid CAPTCHA code entered")
-                        raise Exception("Invalid CAPTCHA code")
-                except KeyboardInterrupt:
-                    logger.info("User cancelled CAPTCHA entry")
-                    raise Exception("CAPTCHA entry cancelled by user")
-                except Exception as e:
-                    logger.error(f"Error getting manual CAPTCHA input: {e}")
-                    raise Exception("Failed to get manual CAPTCHA input")
+                        logger.warning(f"Attempt {attempt} failed to read CAPTCHA")
+                        
+                        # If not the last attempt, try to refresh CAPTCHA and retry
+                        if attempt < max_retries:
+                            logger.info("Refreshing CAPTCHA and trying again...")
+                            self.refresh_captcha()
+                            time.sleep(2)  # Wait for new CAPTCHA to load
+                
+                # If still failed after all retries, allow manual input as fallback
+                if not verification_code:
+                    logger.warning("❌ OCR failed to read CAPTCHA after all retries")
+                    logger.info("Please manually enter the CAPTCHA code shown in the browser.")
+                    
+                    try:
+                        verification_code = input("Enter the CAPTCHA code from the browser: ").strip()
+                        if verification_code and len(verification_code) >= 3:
+                            logger.info(f"Using manually entered CAPTCHA: {verification_code}")
+                        else:
+                            logger.error("Invalid CAPTCHA code entered")
+                            raise Exception("Invalid CAPTCHA code")
+                    except KeyboardInterrupt:
+                        logger.info("User cancelled CAPTCHA entry")
+                        raise Exception("CAPTCHA entry cancelled by user")
+                    except Exception as e:
+                        logger.error(f"Error getting manual CAPTCHA input: {e}")
+                        raise Exception("Failed to get manual CAPTCHA input")
             
             logger.info("Entering verification code...")
             verification_field.clear()
@@ -1108,7 +1182,7 @@ def main():
     
     # Hardcoded credentials
     username = "henry.mai"
-    password = "Tin24120!"
+    password = "abc@123456"
     
     # Always run with browser visible for CAPTCHA entry
     headless = False
