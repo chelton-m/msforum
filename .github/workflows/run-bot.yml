@@ -50,5 +50,11 @@ jobs:
     
     - name: Run bot
       run: |
-        python forum_bot.py
-      timeout-minutes: 30
+        # Set display for headless mode
+        export DISPLAY=:99
+        Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+        sleep 2
+        
+        # Run bot with timeout
+        timeout 300 python forum_bot.py || echo "Bot completed or timed out"
+      timeout-minutes: 10

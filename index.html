@@ -58,8 +58,7 @@
             4. Bot runs automatically
         </div>
         
-        <button onclick="startBot()">Start Bot (Local)</button>
-        <button onclick="runGitHubAction()">Run Bot (GitHub)</button>
+        <button onclick="startBot()">Start Bot</button>
     </div>
 
     <script>
@@ -68,17 +67,10 @@
             const loginWindow = window.open('https://ixpt.itechwx.com/login', '_blank', 'width=1200,height=800');
             
             if (loginWindow) {
-                alert('Browser opened! Enter CAPTCHA manually, then bot will run automatically.');
+                alert('Browser opened! Enter CAPTCHA manually, then run: python forum_bot.py');
             } else {
                 alert('Failed to open browser. Please allow popups.');
             }
-        }
-
-        function runGitHubAction() {
-            // Trigger GitHub Action
-            const actionUrl = 'https://github.com/chelton-m/msforum/actions/workflows/run-bot.yml';
-            window.open(actionUrl, '_blank');
-            alert('GitHub Action triggered! Check the Actions tab to see the bot running.');
         }
     </script>
 </body>
