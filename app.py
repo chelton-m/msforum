@@ -83,6 +83,7 @@ def api_start():
         
         # Run forum_bot.py exactly like manual execution
         def run_forum_bot():
+            global bot_instance
             try:
                 # Use the MicrosoftForumBot class directly
                 if MicrosoftForumBot is None:
@@ -100,12 +101,12 @@ def api_start():
                 login_url = "https://ixpt.itechwx.com/login"
                 logger.info(f"Navigating to login page: {login_url}")
                 bot_instance.driver.get(login_url)
-                time.sleep(3)
+                time.sleep(5)  # Wait longer for page to load
                 
                 # Auto-fill username and password with better selectors
                 try:
                     # Wait for page to load completely
-                    time.sleep(2)
+                    time.sleep(3)
                     
                     # Try multiple selectors for username field (same as forum_bot.py)
                     username_selectors = [
@@ -191,37 +192,53 @@ def api_start():
                 except Exception as e:
                     logger.error(f"Error auto-filling credentials: {e}")
                 
-                # Wait for manual CAPTCHA input (like forum_bot.py does)
-                logger.info("Browser opened! Please enter CAPTCHA manually in the browser window.")
-                logger.info("After entering CAPTCHA, the bot will continue automatically...")
+                # Try to auto-login first, if fails then wait for manual input
+                logger.info("Trying to auto-login...")
                 
-                # Wait for user to manually enter CAPTCHA and click login
-                # Check every 2 seconds if login was successful
-                max_wait_time = 300  # 5 minutes max wait
-                wait_time = 0
-                
-                while wait_time < max_wait_time:
-                    time.sleep(2)
-                    wait_time += 2
+                # Look for login button and try to click it
+                try:
+                    login_button_selectors = [
+                        "//button[contains(text(), 'Sign In')]",
+                        "//input[@value='Sign In']",
+                        "//button[@type='submit']",
+                        "//input[@type='submit']",
+                        "//button[contains(text(), 'Login')]",
+                        "//button[contains(text(), '登录')]",
+                        "button[type='submit']",
+                        "input[type='submit']"
+                    ]
                     
-                    # Check if we're redirected to forum page (login successful)
-                    current_url = bot_instance.driver.current_url
-                    if "MicrosoftForum" in current_url or "login" not in current_url:
-                        logger.info("Login successful! Starting automation...")
-                        break
+                    login_button = None
+                    for selector in login_button_selectors:
+                        try:
+                            if selector.startswith("//"):
+                                login_button = bot_instance.driver.find_element(By.XPATH, selector)
+                            else:
+                                login_button = bot_instance.driver.find_element(By.CSS_SELECTOR, selector)
+                            break
+                        except:
+                            continue
                     
-                    # Check if still on login page
-                    if "login" in current_url:
-                        logger.info(f"Waiting for manual CAPTCHA input... ({wait_time}s)")
-                        continue
-                
-                if wait_time >= max_wait_time:
-                    logger.error("Timeout waiting for manual CAPTCHA input")
-                    update_bot_status({
-                        'running': False,
-                        'error_message': 'Timeout waiting for CAPTCHA input'
-                    })
-                    return
+                    if login_button:
+                        logger.info("Clicking login button...")
+                        login_button.click()
+                        time.sleep(3)
+                        
+                        # Check if login was successful
+                        current_url = bot_instance.driver.current_url
+                        if "MicrosoftForum" in current_url or "login" not in current_url:
+                            logger.info("✅ Auto-login successful!")
+                        else:
+                            logger.info("Auto-login failed, waiting for manual CAPTCHA input...")
+                            # Wait briefly for manual input
+                            time.sleep(10)  # Give user 10 seconds to enter CAPTCHA
+                    else:
+                        logger.info("No login button found, waiting for manual input...")
+                        time.sleep(10)  # Give user 10 seconds
+                        
+                except Exception as e:
+                    logger.warning(f"Auto-login attempt failed: {e}")
+                    time.sleep(10)  # Give user 10 seconds
                 
                 # Start continuous monitoring (like forum_bot.py main())
                 logger.info("Starting continuous monitoring with 1 second intervals...")
