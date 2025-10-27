@@ -81,11 +81,11 @@ def api_start():
             'processed_cases': 0
         })
         
-        # Run forum_bot.py exactly like manual execution
+        # Run forum_bot.py exactly like manual execution - SIMPLE VERSION
         def run_forum_bot():
             global bot_instance
             try:
-                # Use the MicrosoftForumBot class directly
+                # Use the MicrosoftForumBot class directly - EXACTLY like forum_bot.py main()
                 if MicrosoftForumBot is None:
                     update_bot_status({
                         'running': False,
@@ -93,154 +93,22 @@ def api_start():
                     })
                     return
                 
-                # Create bot instance with visible browser (like forum_bot.py main())
+                # Create bot instance with visible browser (EXACTLY like forum_bot.py main())
                 bot_instance = MicrosoftForumBot(headless=False)
                 bot_instance.setup_driver()
                 
-                # Navigate to login page and auto-fill username/password
-                login_url = "https://ixpt.itechwx.com/login"
-                logger.info(f"Navigating to login page: {login_url}")
-                bot_instance.driver.get(login_url)
-                time.sleep(5)  # Wait longer for page to load
+                # Login with credentials (EXACTLY like forum_bot.py main())
+                login_success = bot_instance.login(username, password)
                 
-                # Auto-fill username and password with better selectors
-                try:
-                    # Wait for page to load completely
-                    time.sleep(3)
-                    
-                    # Try multiple selectors for username field (same as forum_bot.py)
-                    username_selectors = [
-                        "input[placeholder*='account']",
-                        "input[placeholder*='Account']", 
-                        "input[name='username']",
-                        "input[name='account']",
-                        "input[type='text']",
-                        "input[placeholder*='Please input account']",
-                        "input[placeholder*='please input account']"
-                    ]
-                    
-                    username_field = None
-                    logger.info("Looking for username field...")
-                    for selector in username_selectors:
-                        try:
-                            elements = bot_instance.driver.find_elements(By.CSS_SELECTOR, selector)
-                            logger.info(f"Found {len(elements)} elements with username selector: {selector}")
-                            for element in elements:
-                                if element.is_displayed():
-                                    username_field = element
-                                    logger.info(f"✅ Found username field with selector: {selector}")
-                                    break
-                            if username_field:
-                                break
-                        except Exception as e:
-                            logger.warning(f"Selector {selector} failed: {e}")
-                            continue
-                    
-                    # Try multiple selectors for password field
-                    password_selectors = [
-                        "input[placeholder*='password']",
-                        "input[placeholder*='Password']",
-                        "input[name='password']", 
-                        "input[type='password']",
-                        "input[placeholder*='Please input password']",
-                        "input[placeholder*='please input password']"
-                    ]
-                    
-                    password_field = None
-                    logger.info("Looking for password field...")
-                    for selector in password_selectors:
-                        try:
-                            elements = bot_instance.driver.find_elements(By.CSS_SELECTOR, selector)
-                            logger.info(f"Found {len(elements)} elements with password selector: {selector}")
-                            for element in elements:
-                                if element.is_displayed():
-                                    password_field = element
-                                    logger.info(f"✅ Found password field with selector: {selector}")
-                                    break
-                            if password_field:
-                                break
-                        except Exception as e:
-                            logger.warning(f"Selector {selector} failed: {e}")
-                            continue
-                    
-                    # Fill the fields if found
-                    if username_field and password_field:
-                        logger.info("Filling username...")
-                        username_field.clear()
-                        username_field.send_keys(username)
-                        
-                        logger.info("Filling password...")
-                        password_field.clear()
-                        password_field.send_keys(password)
-                        
-                        logger.info("✅ Username and password filled automatically")
-                    else:
-                        logger.warning("❌ Could not find username or password fields")
-                        # Debug: list all input elements
-                        try:
-                            all_inputs = bot_instance.driver.find_elements(By.TAG_NAME, "input")
-                            logger.info(f"Found {len(all_inputs)} input elements total:")
-                            for i, inp in enumerate(all_inputs):
-                                if inp.is_displayed():
-                                    placeholder = inp.get_attribute('placeholder')
-                                    name = inp.get_attribute('name')
-                                    input_type = inp.get_attribute('type')
-                                    logger.info(f"  Input {i+1}: type='{input_type}', name='{name}', placeholder='{placeholder}'")
-                        except Exception as e:
-                            logger.warning(f"Error listing inputs: {e}")
-                            
-                except Exception as e:
-                    logger.error(f"Error auto-filling credentials: {e}")
+                if not login_success:
+                    logger.error("Login failed")
+                    update_bot_status({
+                        'running': False,
+                        'error_message': 'Login failed'
+                    })
+                    return
                 
-                # Try to auto-login first, if fails then wait for manual input
-                logger.info("Trying to auto-login...")
-                
-                # Look for login button and try to click it
-                try:
-                    login_button_selectors = [
-                        "//button[contains(text(), 'Sign In')]",
-                        "//input[@value='Sign In']",
-                        "//button[@type='submit']",
-                        "//input[@type='submit']",
-                        "//button[contains(text(), 'Login')]",
-                        "//button[contains(text(), '登录')]",
-                        "button[type='submit']",
-                        "input[type='submit']"
-                    ]
-                    
-                    login_button = None
-                    for selector in login_button_selectors:
-                        try:
-                            if selector.startswith("//"):
-                                login_button = bot_instance.driver.find_element(By.XPATH, selector)
-                            else:
-                                login_button = bot_instance.driver.find_element(By.CSS_SELECTOR, selector)
-                            break
-                        except:
-                            continue
-                    
-                    if login_button:
-                        logger.info("Clicking login button...")
-                        login_button.click()
-                        time.sleep(3)
-                        
-                        # Check if login was successful
-                        current_url = bot_instance.driver.current_url
-                        if "MicrosoftForum" in current_url or "login" not in current_url:
-                            logger.info("✅ Auto-login successful!")
-                        else:
-                            logger.info("Auto-login failed, waiting for manual CAPTCHA input...")
-                            # Wait briefly for manual input
-                            time.sleep(10)  # Give user 10 seconds to enter CAPTCHA
-                    else:
-                        logger.info("No login button found, waiting for manual input...")
-                        time.sleep(10)  # Give user 10 seconds
-                        
-                except Exception as e:
-                    logger.warning(f"Auto-login attempt failed: {e}")
-                    time.sleep(10)  # Give user 10 seconds
-                
-                # Start continuous monitoring (like forum_bot.py main())
+                # Start continuous monitoring (EXACTLY like forum_bot.py main())
                 logger.info("Starting continuous monitoring with 1 second intervals...")
                 bot_instance.continuous_monitor(interval_seconds=1)
                 
