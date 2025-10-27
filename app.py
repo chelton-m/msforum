@@ -58,7 +58,7 @@ def api_status():
 
 @app.route('/api/start', methods=['POST'])
 def api_start():
-    """Start simple browser - show UI, user inputs CAPTCHA, redirect to forum, reload every 1s"""
+    """Start bot - runs forum_bot.py directly"""
     global bot_instance, monitoring_thread, bot_status
     
     try:
@@ -73,29 +73,6 @@ def api_start():
         if not username or not password:
             return jsonify({'success': False, 'message': 'Username and password required'})
         
-        # Initialize bot with visible browser
-        if MicrosoftForumBot is None:
-            return jsonify({'success': False, 'message': 'Bot module not available. Please install dependencies.'})
-        
-        bot_instance = MicrosoftForumBot(headless=False)  # Show browser
-        bot_instance.setup_driver()
-        
-        # Navigate to login page - user will input CAPTCHA manually
-        login_url = "https://ixpt.itechwx.com/login"
-        bot_instance.driver.get(login_url)
-        
-        # Enter username and password automatically
-        try:
-            username_field = bot_instance.driver.find_element(By.CSS_SELECTOR, "input[placeholder*='account'], input[name='username']")
-            password_field = bot_instance.driver.find_element(By.CSS_SELECTOR, "input[type='password']")
-            
-            username_field.clear()
-            username_field.send_keys(username)
-            password_field.clear()
-            password_field.send_keys(password)
-        except:
-            pass  # User can enter manually if needed
-        
         update_bot_status({
             'running': True,
             'error_message': None,
@@ -103,29 +80,44 @@ def api_start():
             'processed_cases': 0
         })
         
-        # Start simple reload loop - reload page every 1 second
-        def simple_reload():
+        # Run forum_bot.py directly in background thread
+        def run_forum_bot():
             try:
-                while bot_status['running']:
-                    time.sleep(1)  # Wait 1 second
-                    if bot_instance and bot_instance.driver:
-                        # Check if we're on forum page, if not redirect
-                        current_url = bot_instance.driver.current_url
-                        if "MicrosoftForum" not in current_url and "login" not in current_url:
-                            bot_instance.driver.get("https://ixpt.itechwx.com/MicrosoftForum")
-                        else:
-                            bot_instance.driver.refresh()  # Reload page
+                import subprocess
+                import os
+                
+                # Change to the directory where forum_bot.py is located
+                os.chdir('/Users/henrymai/Chelton/work/msforum')
+                
+                # Run forum_bot.py with credentials
+                process = subprocess.Popen([
+                    'python', 'forum_bot.py'
+                ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                
+                # Send credentials to the process
+                input_data = f"{username}\n{password}\n"  # Username, then password
+                stdout, stderr = process.communicate(input=input_data)
+                
+                logger.info(f"Forum bot output: {stdout}")
+                if stderr:
+                    logger.error(f"Forum bot error: {stderr}")
+                
+                update_bot_status({
+                    'running': False,
+                    'error_message': 'Bot process completed'
+                })
+                
             except Exception as e:
-                logger.error(f"Reload error: {e}")
+                logger.error(f"Error running forum_bot.py: {e}")
                 update_bot_status({
                     'running': False,
                     'error_message': str(e)
                 })
         
-        monitoring_thread = threading.Thread(target=simple_reload, daemon=True)
+        monitoring_thread = threading.Thread(target=run_forum_bot, daemon=True)
         monitoring_thread.start()
         
-        return jsonify({'success': True, 'message': 'Browser opened - enter CAPTCHA manually, then it will redirect and reload every 1s'})
+        return jsonify({'success': True, 'message': 'Forum bot started - check browser window for CAPTCHA input'})
         
     except Exception as e:
         logger.error(f"Error starting bot: {e}")

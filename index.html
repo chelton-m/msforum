@@ -347,15 +347,54 @@
                 return;
             }
             
-            showToast('Starting bot...', 'info');
-            const result = await apiCall('/api/start', 'POST', { username, password });
+            showToast('Opening browser window...', 'info');
             
-            if (result.success) {
-                showToast('Bot started successfully!', 'success');
-                refreshStatus();
+            // Open new window to login page
+            const loginWindow = window.open('https://ixpt.itechwx.com/login', '_blank', 'width=1200,height=800');
+            
+            if (loginWindow) {
+                showToast('Browser opened! Enter CAPTCHA manually, then click "Start Reload"', 'success');
+                
+                // Show reload button
+                document.getElementById('startReloadBtn').style.display = 'inline-block';
+                botRunning = true;
+                updateButtonStates();
+                updateStatus('Running', new Date().toLocaleTimeString());
+                addLog('Browser opened for manual CAPTCHA input');
             } else {
-                showToast('Failed to start bot: ' + result.message, 'error');
+                showToast('Failed to open browser window. Please allow popups.', 'error');
             }
+        }
+
+        async function startReload() {
+            if (!botRunning) {
+                showToast('Please start bot first', 'warning');
+                return;
+            }
+            
+            showToast('Starting auto-reload every 1 second...', 'info');
+            
+            // Start reload loop
+            const reloadInterval = setInterval(() => {
+                if (botRunning) {
+                    // Try to reload the forum page
+                    try {
+                        const forumWindow = window.open('https://ixpt.itechwx.com/MicrosoftForum', '_blank');
+                        if (forumWindow) {
+                            setTimeout(() => {
+                                forumWindow.location.reload();
+                            }, 1000);
+                        }
+                    } catch (e) {
+                        console.log('Reload attempt failed');
+                    }
+                } else {
+                    clearInterval(reloadInterval);
+                }
+            }, 1000);
+            
+            showToast('Auto-reload started!', 'success');
+            addLog('Auto-reload started - refreshing forum every 1 second');
         }
 
         async function stopBot() {
