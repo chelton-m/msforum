@@ -15,10 +15,12 @@ import pytesseract
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
+import getpass
 
 # Configure logging
 logging.basicConfig(
@@ -27,12 +29,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 class MicrosoftForumBot:
     def __init__(self, headless=False):
         """
         Initialize the bot with Chrome WebDriver
-
+        
         Args:
             headless (bool): Run browser in headless mode
         """
@@ -40,7 +41,7 @@ class MicrosoftForumBot:
         self.wait = None
         self.headless = headless
         self.base_url = "https://ixpt.itechwx.com/MicrosoftForum"
-
+        
         # Configure Tesseract OCR (you may need to adjust the path)
         try:
             # Try common Tesseract paths
@@ -50,7 +51,7 @@ class MicrosoftForumBot:
                 '/usr/bin/tesseract',
                 'tesseract'  # If it's in PATH
             ]
-
+            
             for path in tesseract_paths:
                 try:
                     pytesseract.pytesseract.tesseract_cmd = path
@@ -64,27 +65,37 @@ class MicrosoftForumBot:
                 logger.warning("Tesseract not found. CAPTCHA reading will not work.")
         except Exception as e:
             logger.warning(f"Tesseract configuration failed: {e}")
-
+    
     def read_captcha_from_canvas(self):
         """
         Read CAPTCHA text from canvas element using OCR with multiple strategies
-
+        
         Returns:
             str: The CAPTCHA text, or None if reading failed
         """
         try:
             logger.info("Starting CAPTCHA detection...")
-
+            
             # Wait for page to fully load
             time.sleep(2)
-
+            
             # Find the canvas element with multiple strategies
-            # Look for canvas elements specifically first
             canvas_selectors = [
                 "canvas",
+                "img[src*='captcha']",
+                "img[src*='verification']",
+                "div[style*='background']",
+                "div[class*='captcha']",
+                "div[class*='verification']",
+                "div[id*='captcha']",
+                "div[id*='verification']",
+                "img[alt*='captcha']",
+                "img[alt*='verification']"
             ]
-
-            # First try canvas elements only
+            
+            canvas_element = None
+            found_selector = None
+            
             for selector in canvas_selectors:
                 try:
                     elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
@@ -92,57 +103,25 @@ class MicrosoftForumBot:
                     
                     for element in elements:
                         try:
+                            # Check if element is visible and has reasonable size
                             if element.is_displayed():
                                 size = element.size
-                                logger.info(f"Canvas element size: {size}")
-                                # Canvas should be relatively small (CAPTCHA size)
-                                if size['width'] > 20 and size['width'] < 200 and size['height'] > 10 and size['height'] < 100:
+                                logger.info(f"Element size: {size}")
+                                if size['width'] > 30 and size['height'] > 15:
                                     canvas_element = element
                                     found_selector = selector
-                                    logger.info(f"✅ Found CAPTCHA canvas element")
+                                    logger.info(f"✅ Found CAPTCHA element with selector: {selector}")
                                     break
                         except Exception as e:
                             logger.warning(f"Error checking element: {e}")
                             continue
-
+                    
                     if canvas_element:
                         break
                 except Exception as e:
                     logger.warning(f"Error with selector {selector}: {e}")
                     continue
-
-            # If canvas not found, try img elements as fallback
-            if not canvas_element:
-                img_selectors = [
-                    "img[src*='captcha']",
-                    "img[src*='verification']",
-                    "img[alt*='captcha']",
-                    "img[alt*='verification']"
-                ]
-                for selector in img_selectors:
-                    try:
-                        elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                        logger.info(f"Found {len(elements)} elements with selector: {selector}")
-
-                        for element in elements:
-                            try:
-                                if element.is_displayed():
-                                    size = element.size
-                                    logger.info(f"Img element size: {size}")
-                                    if size['width'] > 20 and size['width'] < 200 and size['height'] > 10 and size['height'] < 100:
-                                        canvas_element = element
-                                        logger.info(f"✅ Found CAPTCHA img element")
-                                        break
-                            except Exception as e:
-                                logger.warning(f"Error checking element: {e}")
-                                continue
-
-                        if canvas_element:
-                            break
-                    except Exception as e:
-                        logger.warning(f"Error with selector {selector}: {e}")
-                        continue
-
+            
             if not canvas_element:
                 logger.error("❌ CAPTCHA canvas element not found")
                 # Let's try to find any image-like element
@@ -156,27 +135,27 @@ class MicrosoftForumBot:
                 except Exception as e:
                     logger.warning(f"Error listing images: {e}")
                 return None
-
+            
             # Scroll to element to ensure it's fully visible
             self.driver.execute_script("arguments[0].scrollIntoView(true);", canvas_element)
             time.sleep(1)
-
+            
             # Take screenshot of the canvas element
             logger.info("Taking screenshot of CAPTCHA element...")
             canvas_screenshot = canvas_element.screenshot_as_png
             logger.info(f"Screenshot size: {len(canvas_screenshot)} bytes")
-
+            
             # Convert to PIL Image
             image = Image.open(io.BytesIO(canvas_screenshot))
             logger.info(f"Image dimensions: {image.size}")
-
+            
             # Save debug image
             try:
                 image.save("debug_captcha.png")
                 logger.info("Saved debug image as debug_captcha.png")
             except Exception as e:
                 logger.warning(f"Could not save debug image: {e}")
-
+            
             # Try multiple image processing strategies
             strategies = [
                 self._process_image_strategy_1,
@@ -185,18 +164,18 @@ class MicrosoftForumBot:
                 self._process_image_strategy_4,
                 self._process_image_strategy_5  # New strategy for digit-by-digit reading
             ]
-
+            
             for i, strategy in enumerate(strategies, 1):
                 try:
                     logger.info(f"Trying strategy {i}...")
                     processed_image = strategy(image)
-
+                    
                     # Special handling for strategy 5 (digit-by-digit)
                     if i == 5 and isinstance(processed_image, str):
                         captcha_text = processed_image
                     else:
                         captcha_text = self._extract_text_from_image(processed_image)
-
+                    
                     if captcha_text and len(captcha_text) >= 3:  # Minimum 3 digits
                         logger.info(f"✅ CAPTCHA read successfully with strategy {i}: {captcha_text}")
                         return captcha_text
@@ -205,10 +184,10 @@ class MicrosoftForumBot:
                 except Exception as e:
                     logger.warning(f"Strategy {i} failed: {e}")
                     continue
-
+            
             logger.warning("❌ All CAPTCHA reading strategies failed")
             return None
-
+                
         except Exception as e:
             logger.error(f"❌ Error reading CAPTCHA: {e}")
             import traceback
@@ -219,19 +198,19 @@ class MicrosoftForumBot:
         """Strategy 1: Basic threshold processing with rotation correction"""
         opencv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
         gray = cv2.cvtColor(opencv_image, cv2.COLOR_BGR2GRAY)
-
+        
         # Try to correct rotation
         gray = self._correct_rotation(gray)
-
+        
         _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         return thresh
-
+    
     def _correct_rotation(self, gray_image):
         """Try to correct rotation in the image"""
         try:
             # Find contours
             contours, _ = cv2.findContours(gray_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
+            
             if contours:
                 # Get the largest contour (likely the text)
                 largest_contour = max(contours, key=cv2.contourArea)
@@ -310,9 +289,7 @@ class MicrosoftForumBot:
             opencv_image[:, :, 1],
             # Strategy 4: Extract blue channel (for blue digits)
             opencv_image[:, :, 0],
-            # Strategy 5: Convert to LAB and extract L channel (better for color separation)
-            cv2.cvtColor(opencv_image, cv2.COLOR_BGR2LAB)[:, :, 0],
-            # Strategy 6: Convert to HSV and extract value channel
+            # Strategy 5: Convert to HSV and extract value channel
             cv2.cvtColor(opencv_image, cv2.COLOR_BGR2HSV)[:, :, 2]
         ]
         
@@ -321,81 +298,61 @@ class MicrosoftForumBot:
         
         for i, gray in enumerate(strategies):
             try:
-                # Try multiple threshold methods
-                # Method 1: OTSU threshold
-                _, thresh1 = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                # Apply threshold
+                _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
                 
-                # Method 2: Adaptive threshold for better handling of varying lighting
-                thresh2 = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                               cv2.THRESH_BINARY, 11, 2)
+                # Find contours to separate individual digits
+                contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 
-                # Method 3: Inverted OTSU
-                _, thresh3 = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+                # Filter contours by size (should be roughly digit-sized)
+                digit_contours = []
+                for contour in contours:
+                    x, y, w, h = cv2.boundingRect(contour)
+                    # Filter by size - digits should be reasonable size
+                    if w > 8 and h > 12 and w < 40 and h < 35:
+                        digit_contours.append((x, y, w, h, contour))
                 
-                # Method 4: Inverted adaptive
-                thresh4 = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                               cv2.THRESH_BINARY_INV, 11, 2)
+                # Sort by x position (left to right)
+                digit_contours.sort(key=lambda x: x[0])
                 
-                thresh_options = [thresh1, thresh2, thresh3, thresh4]
+                # Extract individual digits
+                digits = []
+                for x, y, w, h, contour in digit_contours:
+                    # Extract the digit region
+                    digit_roi = thresh[y:y+h, x:x+w]
+                    
+                    # Resize to standard size for better OCR
+                    digit_roi = cv2.resize(digit_roi, (20, 30))
+                    
+                    # Use OCR on individual digit with multiple configs
+                    digit_configs = [
+                        r'--oem 3 --psm 10 -c tessedit_char_whitelist=0123456789',
+                        r'--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789',
+                        r'--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789'
+                    ]
+                    
+                    digit_text = None
+                    for config in digit_configs:
+                        try:
+                            result = pytesseract.image_to_string(digit_roi, config=config).strip()
+                            result = ''.join(filter(str.isdigit, result))
+                            if result and len(result) == 1:
+                                digit_text = result
+                                break
+                        except:
+                            continue
+                    
+                    if digit_text:
+                        digits.append(digit_text)
                 
-                # Try each threshold method
-                for thresh_idx, thresh in enumerate(thresh_options):
-                    try:
-                        # Find contours to separate individual digits
-                        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                        
-                        # Filter contours by size (should be roughly digit-sized)
-                        digit_contours = []
-                        for contour in contours:
-                            x, y, w, h = cv2.boundingRect(contour)
-                            # Filter by size - digits should be reasonable size
-                            if w > 8 and h > 12 and w < 40 and h < 35:
-                                digit_contours.append((x, y, w, h, contour))
-                        
-                        # Sort by x position (left to right)
-                        digit_contours.sort(key=lambda x: x[0])
-                        
-                        # Extract individual digits
-                        digits = []
-                        for x, y, w, h, contour in digit_contours:
-                            # Extract the digit region
-                            digit_roi = thresh[y:y+h, x:x+w]
-                            
-                            # Resize to standard size for better OCR
-                            digit_roi = cv2.resize(digit_roi, (20, 30))
-                            
-                            # Use OCR on individual digit with multiple configs
-                            digit_configs = [
-                                r'--oem 3 --psm 10 -c tessedit_char_whitelist=0123456789',
-                                r'--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789',
-                                r'--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789'
-                            ]
-                            
-                            digit_text = None
-                            for config in digit_configs:
-                                try:
-                                    result = pytesseract.image_to_string(digit_roi, config=config).strip()
-                                    result = ''.join(filter(str.isdigit, result))
-                                    if result and len(result) == 1:
-                                        digit_text = result
-                                        break
-                                except:
-                                    continue
-                            
-                            if digit_text:
-                                digits.append(digit_text)
-                        
-                        # Combine digits in order - CAPTCHA should be exactly 4 digits
-                        if digits and len(digits) == 4:
-                            combined = ''.join(digits)
-                            confidence = len(digits)  # More digits = higher confidence
-                            if confidence > best_confidence:
-                                best_result = combined
-                                best_confidence = confidence
-                                logger.info(f"Strategy {i+1} digit-by-digit reading result: {combined} (confidence: {confidence})")
-                    except Exception as e:
-                        logger.warning(f"Threshold method {thresh_idx+1} failed: {e}")
-                        continue
+                # Combine digits in order
+                if digits and len(digits) >= 3:
+                    combined = ''.join(digits)
+                    confidence = len(digits)  # More digits = higher confidence
+                    if confidence > best_confidence:
+                        best_result = combined
+                        best_confidence = confidence
+                        logger.info(f"Strategy {i+1} digit-by-digit reading result: {combined} (confidence: {confidence})")
                 
             except Exception as e:
                 logger.warning(f"Strategy {i+1} failed: {e}")
@@ -430,8 +387,7 @@ class MicrosoftForumBot:
                 captcha_text = ''.join(filter(str.isdigit, captcha_text))
                 logger.info(f"Cleaned OCR result: '{captcha_text}'")
                 
-                # CAPTCHA should be exactly 4 digits
-                if captcha_text and len(captcha_text) == 4:
+                if captcha_text and len(captcha_text) >= 3:
                     logger.info(f"✅ Valid CAPTCHA found: {captcha_text}")
                     return captcha_text
                 else:
@@ -573,7 +529,7 @@ class MicrosoftForumBot:
         Args:
             username (str): Username for login
             password (str): Password for login
-            verification_code (str): Canvas-based verification code (if None, will read using OCR)
+            verification_code (str): Canvas-based verification code (if None, will prompt user)
         """
         try:
             # Navigate to login page first
@@ -697,53 +653,25 @@ class MicrosoftForumBot:
             password_field.clear()
             password_field.send_keys(password)
             
-            # Handle verification code - READ USING OCR with retry logic
+            # Handle verification code - MANUAL ENTRY (more reliable)
             if verification_code is None:
-                max_retries = 3
-                verification_code = None
+                logger.info("Please manually enter the CAPTCHA code shown in the browser.")
+                logger.info("Look at the browser window and type the CAPTCHA code.")
                 
-                for attempt in range(1, max_retries + 1):
-                    logger.info(f"Attempting to read CAPTCHA using OCR (attempt {attempt}/{max_retries})...")
-                    
-                    # Try to read CAPTCHA from canvas
-                    verification_code = self.read_captcha_from_canvas()
-                    
-                    # If canvas OCR failed, try alternative methods
-                    if not verification_code:
-                        logger.info("Canvas OCR failed, trying alternative method...")
-                        verification_code = self.read_captcha_from_img()
-                    
-                    # If we successfully read it, break
-                    if verification_code:
-                        logger.info(f"✅ CAPTCHA read successfully using OCR: {verification_code}")
-                        break
+                # Keep browser open and wait for manual input
+                try:
+                    verification_code = input("Enter the CAPTCHA code from the browser: ").strip()
+                    if verification_code and len(verification_code) >= 3:
+                        logger.info(f"Using manually entered CAPTCHA: {verification_code}")
                     else:
-                        logger.warning(f"Attempt {attempt} failed to read CAPTCHA")
-                        
-                        # If not the last attempt, try to refresh CAPTCHA and retry
-                        if attempt < max_retries:
-                            logger.info("Refreshing CAPTCHA and trying again...")
-                            self.refresh_captcha()
-                            time.sleep(2)  # Wait for new CAPTCHA to load
-                
-                # If still failed after all retries, allow manual input as fallback
-                if not verification_code:
-                    logger.warning("❌ OCR failed to read CAPTCHA after all retries")
-                    logger.info("Please manually enter the CAPTCHA code shown in the browser.")
-                    
-                    try:
-                        verification_code = input("Enter the CAPTCHA code from the browser: ").strip()
-                        if verification_code and len(verification_code) >= 3:
-                            logger.info(f"Using manually entered CAPTCHA: {verification_code}")
-                        else:
-                            logger.error("Invalid CAPTCHA code entered")
-                            raise Exception("Invalid CAPTCHA code")
-                    except KeyboardInterrupt:
-                        logger.info("User cancelled CAPTCHA entry")
-                        raise Exception("CAPTCHA entry cancelled by user")
-                    except Exception as e:
-                        logger.error(f"Error getting manual CAPTCHA input: {e}")
-                        raise Exception("Failed to get manual CAPTCHA input")
+                        logger.error("Invalid CAPTCHA code entered")
+                        raise Exception("Invalid CAPTCHA code")
+                except KeyboardInterrupt:
+                    logger.info("User cancelled CAPTCHA entry")
+                    raise Exception("CAPTCHA entry cancelled by user")
+                except Exception as e:
+                    logger.error(f"Error getting manual CAPTCHA input: {e}")
+                    raise Exception("Failed to get manual CAPTCHA input")
             
             logger.info("Entering verification code...")
             verification_field.clear()
@@ -805,27 +733,14 @@ class MicrosoftForumBot:
         """
         try:
             # Wait for table to load
-            time.sleep(2)
+            time.sleep(1)
             
-            # Find all checkboxes - use comprehensive selectors for the specific UI
+            # Find all checkboxes - use simple working selectors
             checkbox_selectors = [
-                # Standard checkbox selectors
                 "//input[@type='checkbox']",
                 "//input[@class='ant-checkbox-input']",
                 "//div[@class='ant-table-container']//input[@type='checkbox']",
-                "//div[contains(@class, 'ant-table')]//input[@type='checkbox']",
-                "//span[@class='ant-checkbox']//input",
-                "//label[contains(@class, 'ant-checkbox-wrapper')]//input",
-                "//td//input[@type='checkbox']",
-                "//tr//input[@type='checkbox']",
-                # Additional selectors for the specific UI structure
-                "//div[contains(@class, 'ant-table-row')]//input[@type='checkbox']",
-                "//div[contains(@class, 'ant-table-tbody')]//input[@type='checkbox']",
-                "//div[contains(@class, 'ant-table-content')]//input[@type='checkbox']",
-                # Look for checkbox in the first visible row
-                "//div[contains(@class, 'ant-table-row')][1]//input[@type='checkbox']",
-                "//tr[1]//input[@type='checkbox']",
-                "//td[1]//input[@type='checkbox']"
+                "//div[contains(@class, 'ant-table')]//input[@type='checkbox']"
             ]
             
             checkboxes = []
@@ -835,8 +750,7 @@ class MicrosoftForumBot:
                     if checkboxes:
                         logger.info(f"Found {len(checkboxes)} checkboxes with selector: {selector}")
                         break
-                except Exception as e:
-                    logger.warning(f"Selector {selector} failed: {e}")
+                except:
                     continue
             
             if not checkboxes:
@@ -873,169 +787,46 @@ class MicrosoftForumBot:
             visible_checkboxes = [cb for cb in checkboxes if cb.is_displayed()]
             logger.info(f"📊 Total cases found: {len(visible_checkboxes)}")
             
-            if len(visible_checkboxes) == 0:
-                logger.warning("No visible checkboxes found")
-                return 0
-            
             # Click ONLY the FIRST checkbox
-            first_checkbox = visible_checkboxes[0]
-            try:
-                # Check if already selected
-                if first_checkbox.is_selected():
-                    logger.info("First checkbox already selected")
-                    return 1
-                
-                logger.info("🎯 Clicking FIRST checkbox...")
-                
-                # Scroll to checkbox if needed
-                self.driver.execute_script("arguments[0].scrollIntoView(true);", first_checkbox)
-                time.sleep(0.5)
-                
-                # Try the most effective click methods for Ant Design checkboxes
-                success = False
-                
-                # Method 1: JavaScript click (Most effective for Ant Design components)
+            for i, checkbox in enumerate(visible_checkboxes):
                 try:
-                    logger.info("Trying JavaScript click (most effective for Ant Design)...")
-                    self.driver.execute_script("arguments[0].click();", first_checkbox)
-                    time.sleep(0.2)
-                    if first_checkbox.is_selected():
-                        logger.info("✅ First checkbox selected with JavaScript click")
-                        success = True
-                    else:
-                        logger.warning("JavaScript click didn't select checkbox")
-                except Exception as e:
-                    logger.warning(f"JavaScript click failed: {e}")
-                
-                # Method 2: Try clicking the checkbox wrapper/container (Good for Ant Design)
-                if not success:
-                    try:
-                        logger.info("Trying checkbox wrapper click...")
-                        # Look for checkbox wrapper elements
-                        wrapper_selectors = [
-                            "//span[@class='ant-checkbox']",
-                            "//label[contains(@class, 'ant-checkbox-wrapper')]",
-                            "//div[contains(@class, 'ant-checkbox')]"
-                        ]
+                    if not checkbox.is_selected():
+                        logger.info(f"🎯 Clicking FIRST checkbox (case {i+1})...")
                         
-                        for wrapper_selector in wrapper_selectors:
-                            try:
-                                wrappers = self.driver.find_elements(By.XPATH, wrapper_selector)
-                                for wrapper in wrappers:
-                                    if wrapper.is_displayed():
-                                        wrapper.click()
-                                        time.sleep(0.2)
-                                        if first_checkbox.is_selected():
-                                            logger.info("✅ First checkbox selected by clicking wrapper")
-                                            success = True
-                                            break
-                                if success:
-                                    break
-                            except:
-                                continue
-                    except Exception as e:
-                        logger.warning(f"Wrapper click failed: {e}")
-                
-                # Method 3: Direct click (Standard fallback)
-                if not success:
-                    try:
-                        logger.info("Trying direct click...")
-                        first_checkbox.click()
+                        # Scroll to checkbox if needed
+                        self.driver.execute_script("arguments[0].scrollIntoView(true);", checkbox)
                         time.sleep(0.2)
-                        if first_checkbox.is_selected():
-                            logger.info("✅ First checkbox selected with direct click")
-                            success = True
-                        else:
-                            logger.warning("Direct click didn't select checkbox")
-                    except Exception as e:
-                        logger.warning(f"Direct click failed: {e}")
-                
-                if success:
-                    logger.info("🎉 Checkbox selection successful!")
-                    return 1
-                else:
-                    logger.error("❌ All click methods failed")
-                    return 0
-                    
-            except Exception as e:
-                logger.error(f"Failed to select first checkbox: {e}")
-                return 0
+                        
+                        # Try multiple click methods
+                        try:
+                            checkbox.click()
+                        except:
+                            # If normal click fails, try JavaScript click
+                            self.driver.execute_script("arguments[0].click();", checkbox)
+                        
+                        logger.info(f"✅ First checkbox selected successfully")
+                        return 1
+                    else:
+                        logger.info(f"Checkbox {i+1} already selected")
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to select first checkbox: {e}")
+                    continue
+            
+            logger.info("No unselected checkboxes found")
+            return 0
             
         except Exception as e:
             logger.error(f"Error selecting first checkbox: {e}")
             return 0
-    
-    def enable_switch_button(self):
-        """
-        Enable the switch button if it exists and is disabled
-        Returns True if switch was found and enabled, False otherwise
-        """
-        try:
-            # Look for the ant-switch button
-            switch_selectors = [
-                "//button[@role='switch']",
-                "//button[contains(@class, 'ant-switch')]",
-                "button[role='switch']",
-                "button.ant-switch"
-            ]
-            
-            switch_button = None
-            for selector in switch_selectors:
-                try:
-                    if selector.startswith("//"):
-                        elements = self.driver.find_elements(By.XPATH, selector)
-                    else:
-                        elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                    
-                    for element in elements:
-                        if element.is_displayed():
-                            switch_button = element
-                            logger.info(f"Found switch button with selector: {selector}")
-                            break
-                    
-                    if switch_button:
-                        break
-                except:
-                    continue
-            
-            if switch_button:
-                # Check if switch is already enabled (aria-checked="true")
-                aria_checked = switch_button.get_attribute("aria-checked")
-                if aria_checked == "true":
-                    logger.info("Switch button is already enabled")
-                    return True
-                else:
-                    logger.info("Switch button is disabled, enabling it...")
-                    # Scroll to button
-                    self.driver.execute_script("arguments[0].scrollIntoView(true);", switch_button)
-                    time.sleep(0.2)
-                    
-                    # Click the switch to enable it
-                    try:
-                        switch_button.click()
-                        logger.info("✅ Switch button enabled successfully")
-                        return True
-                    except:
-                        # If normal click fails, try JavaScript click
-                        self.driver.execute_script("arguments[0].click();", switch_button)
-                        logger.info("✅ Switch button enabled with JavaScript")
-                        return True
-            else:
-                logger.warning("Switch button not found - may not exist on this page")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Error enabling switch button: {e}")
-            return False
     
     def click_confirm(self):
         """
         Click the confirm button
         """
         try:
-            # Look for confirm button with comprehensive selectors
+            # Look for confirm button with exact selectors from the HTML
             confirm_selectors = [
-                # Exact selectors from the HTML
                 "//button[@class='ant-btn ant-btn-primary Confirm_bottom']",
                 "//button[contains(@class, 'Confirm_bottom')]",
                 "//button[@class='ant-btn ant-btn-primary']//span[text()='Confirm']",
@@ -1047,13 +838,7 @@ class MicrosoftForumBot:
                 "//button[contains(@class, 'ant-btn-primary')]",
                 "//input[@value='Confirm']",
                 "//input[@value='confirm']",
-                "//button[contains(@class, 'ant-btn') and contains(@class, 'primary')]",
-                # Additional selectors for the specific UI
-                "//button[contains(@class, 'ant-btn') and contains(text(), 'Confirm')]",
-                "//div[contains(@class, 'ant-btn')]//button[text()='Confirm']",
-                "//form//button[text()='Confirm']",
-                "//div[contains(@class, 'footer')]//button[text()='Confirm']",
-                "//div[contains(@class, 'action')]//button[text()='Confirm']"
+                "//button[contains(@class, 'ant-btn') and contains(@class, 'primary')]"
             ]
             
             confirm_button = None
@@ -1074,52 +859,20 @@ class MicrosoftForumBot:
             if confirm_button:
                 # Scroll to button if needed
                 self.driver.execute_script("arguments[0].scrollIntoView(true);", confirm_button)
-                time.sleep(0.3)
+                time.sleep(0.2)
                 
-                # Try the most effective click methods for buttons
-                success = False
-                
-                # Method 1: Direct click (Most effective for standard buttons)
+                # Try multiple click methods
                 try:
-                    logger.info("Trying direct click on confirm button...")
                     confirm_button.click()
-                    time.sleep(0.3)
-                    logger.info("✅ Confirm button clicked with direct click")
-                    success = True
-                except Exception as e:
-                    logger.warning(f"Direct click failed: {e}")
+                    logger.info("✅ Confirm button clicked successfully")
+                except:
+                    # If normal click fails, try JavaScript click
+                    self.driver.execute_script("arguments[0].click();", confirm_button)
+                    logger.info("✅ Confirm button clicked with JavaScript")
                 
-                # Method 2: JavaScript click (Good fallback for complex buttons)
-                if not success:
-                    try:
-                        logger.info("Trying JavaScript click on confirm button...")
-                        self.driver.execute_script("arguments[0].click();", confirm_button)
-                        time.sleep(0.3)
-                        logger.info("✅ Confirm button clicked with JavaScript")
-                        success = True
-                    except Exception as e:
-                        logger.warning(f"JavaScript click failed: {e}")
-                
-                if success:
-                    logger.info("🎉 Confirm button clicked successfully!")
-                    return True
-                else:
-                    logger.error("❌ All confirm button click methods failed")
-                    return False
+                return True
             else:
                 logger.error("❌ Confirm button not found")
-                # Debug: list all buttons
-                try:
-                    all_buttons = self.driver.find_elements(By.TAG_NAME, "button")
-                    logger.info(f"Found {len(all_buttons)} button elements total:")
-                    for i, btn in enumerate(all_buttons):
-                        if btn.is_displayed():
-                            button_text = btn.text
-                            button_class = btn.get_attribute('class')
-                            button_id = btn.get_attribute('id')
-                            logger.info(f"  Button {i+1}: text='{button_text}', class='{button_class}', id='{button_id}'")
-                except Exception as e:
-                    logger.warning(f"Error listing buttons: {e}")
                 return False
                 
         except Exception as e:
@@ -1180,10 +933,10 @@ class MicrosoftForumBot:
             try:
                 cycle_count += 1
                 logger.info(f"Starting cycle {cycle_count}")
-
+                
                 # Run one automation cycle
                 success = self.run_automation_cycle()
-
+                
                 if success:
                     logger.info(f"Cycle {cycle_count} completed successfully")
                 else:
@@ -1272,15 +1025,15 @@ class MicrosoftForumBot:
                                     input_class = inp.get_attribute('class')
                                     input_id = inp.get_attribute('id')
                                     logger.info(f"  Input {i+1}: type='{input_type}', class='{input_class}', id='{input_id}'")
-
+                            
                             # Also check current URL
                             current_url = self.driver.current_url
                             logger.info(f"Current URL: {current_url}")
-
+                            
                             # Check page title
                             page_title = self.driver.title
                             logger.info(f"Page title: {page_title}")
-
+                            
                             # Check for any elements with 'checkbox' in class name
                             checkbox_elements = self.driver.find_elements(By.XPATH, "//*[contains(@class, 'checkbox')]")
                             logger.info(f"Found {len(checkbox_elements)} elements with 'checkbox' in class:")
@@ -1289,37 +1042,34 @@ class MicrosoftForumBot:
                                     tag_name = elem.tag_name
                                     elem_class = elem.get_attribute('class')
                                     logger.info(f"  Element {i+1}: <{tag_name}> class='{elem_class}'")
-
+                            
                             # Check for any table or list elements
                             tables = self.driver.find_elements(By.TAG_NAME, "table")
                             logger.info(f"Found {len(tables)} table elements")
-
+                            
                             # Check page source for 'checkbox' text
                             page_source = self.driver.page_source
                             if 'checkbox' in page_source.lower():
                                 logger.info("✅ Found 'checkbox' text in page source")
                             else:
                                 logger.warning("❌ No 'checkbox' text found in page source")
-
+                            
                         except Exception as e:
                             logger.warning(f"Error listing inputs: {e}")
-
+                    
                     if current_case_count > 0:
                         if current_case_count != last_case_count:
                             logger.info(f"🆕 New cases detected! ({last_case_count} → {current_case_count})")
                             last_case_count = current_case_count
-
+                        
                         logger.info("Processing cases...")
-
-                        # First, try to enable the switch button if it exists
-                        self.enable_switch_button()
-
-                        # Select first checkbox
+                        
+                        # Select all checkboxes
                         selected_count = self.select_first_checkbox()
-
+                        
                         if selected_count > 0:
                             logger.info(f"Selected {selected_count} checkboxes")
-
+                            
                             # Click confirm
                             if self.click_confirm():
                                 logger.info("Confirmed successfully!")
@@ -1330,13 +1080,13 @@ class MicrosoftForumBot:
                     else:
                         logger.info("No cases found")
                         last_case_count = 0
-
+                        
                 except Exception as e:
                     logger.error(f"Error checking cases: {e}")
-
+                
                 logger.info(f"Waiting {interval_seconds} second(s)...")
                 time.sleep(interval_seconds)
-
+                
             except KeyboardInterrupt:
                 logger.info("Monitoring stopped by user")
                 break
@@ -1344,51 +1094,52 @@ class MicrosoftForumBot:
                 logger.error(f"Error in monitoring cycle: {e}")
                 logger.info("Retrying in 5 seconds...")
                 time.sleep(5)
-
+    
     def close(self):
         """Close the browser and cleanup"""
         if self.driver:
             self.driver.quit()
             logger.info("Browser closed")
 
-
 def main():
     """Main function to run the bot"""
     print("Microsoft Forum Automation Bot")
     print("=" * 40)
-
+    
     # Hardcoded credentials
     username = "henry.mai"
     password = "abc@123456"
-
+    
     # Always run with browser visible for CAPTCHA entry
     headless = False
     print("Browser will be visible for CAPTCHA entry")
-
+    
+    # Fixed interval
+    interval = 60
+    
     # Initialize and run bot
     bot = MicrosoftForumBot(headless=headless)
-
+    
     try:
         bot.setup_driver()
-
+        
         # Login with verification code handling
         login_success = bot.login(username, password)
-
+        
         if not login_success:
             print("Login failed. Please check your credentials and try again.")
             return
-
+        
         # Start continuous monitoring (1 second intervals)
         print("\nStarting continuous monitoring...")
         print("Checking for cases every 1 second...")
         print("Press Ctrl+C to stop")
         bot.continuous_monitor(1)  # 1 second intervals
-
+            
     except Exception as e:
         logger.error(f"Bot execution failed: {e}")
     finally:
         bot.close()
-
 
 if __name__ == "__main__":
     main()
