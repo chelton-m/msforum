@@ -295,28 +295,43 @@
             logsInterval = setInterval(refreshLogs, 10000);
         });
 
-        // API Functions
+        // Mock API Functions for GitHub Pages
         async function apiCall(url, method = 'GET', data = null) {
-            try {
-                const options = {
-                    method: method,
-                    headers: {
-                        'Content-Type': 'application/json',
+            // Simulate API calls for GitHub Pages
+            return new Promise((resolve) => {
+                setTimeout(() => {
+                    if (url.includes('/api/start')) {
+                        resolve({ success: true, message: 'Bot started successfully (simulated)' });
+                    } else if (url.includes('/api/stop')) {
+                        resolve({ success: true, message: 'Bot stopped successfully (simulated)' });
+                    } else if (url.includes('/api/run-once')) {
+                        resolve({ success: true, message: 'Automation cycle completed (simulated)' });
+                    } else if (url.includes('/api/login')) {
+                        resolve({ success: true, message: 'Login test successful (simulated)' });
+                    } else if (url.includes('/api/command')) {
+                        resolve({ success: true, message: 'Command executed successfully (simulated)', data: data });
+                    } else if (url.includes('/api/status')) {
+                        resolve({
+                            running: botRunning,
+                            last_check: botRunning ? new Date().toLocaleTimeString() : 'Never',
+                            total_cases: Math.floor(Math.random() * 10),
+                            processed_cases: Math.floor(Math.random() * 5),
+                            error_message: null
+                        });
+                    } else if (url.includes('/api/logs')) {
+                        resolve({
+                            logs: [
+                                `${new Date().toLocaleTimeString()} - Bot status: ${botRunning ? 'Running' : 'Stopped'}`,
+                                `${new Date().toLocaleTimeString()} - Last check: ${botRunning ? new Date().toLocaleTimeString() : 'Never'}`,
+                                `${new Date().toLocaleTimeString()} - Total cases: ${Math.floor(Math.random() * 10)}`,
+                                `${new Date().toLocaleTimeString()} - Processed cases: ${Math.floor(Math.random() * 5)}`
+                            ]
+                        });
+                    } else {
+                        resolve({ success: false, message: 'Unknown endpoint' });
                     }
-                };
-                
-                if (data) {
-                    options.body = JSON.stringify(data);
-                }
-                
-                const response = await fetch(url, options);
-                const result = await response.json();
-                return result;
-            } catch (error) {
-                console.error('API call failed:', error);
-                showToast('API call failed: ' + error.message, 'error');
-                return { success: false, message: error.message };
-            }
+                }, 500);
+            });
         }
 
         // Bot Control Functions
