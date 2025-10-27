@@ -81,24 +81,22 @@ def api_start():
             'processed_cases': 0
         })
         
-        # Run forum_bot.py exactly like manual execution - SIMPLE VERSION
+        # Run forum_bot.py EXACTLY like manual execution
         def run_forum_bot():
             global bot_instance
             try:
-                # Use the MicrosoftForumBot class directly - EXACTLY like forum_bot.py main()
-                if MicrosoftForumBot is None:
-                    update_bot_status({
-                        'running': False,
-                        'error_message': 'Bot module not available'
-                    })
-                    return
+                # EXACTLY like forum_bot.py main() - hardcoded credentials
+                username_hardcoded = "henry.mai"
+                password_hardcoded = "abc@123456"
+                headless = False
+                interval = 1
                 
-                # Create bot instance with visible browser (EXACTLY like forum_bot.py main())
-                bot_instance = MicrosoftForumBot(headless=False)
+                # Initialize and run bot EXACTLY like forum_bot.py main()
+                bot_instance = MicrosoftForumBot(headless=headless)
                 bot_instance.setup_driver()
                 
-                # Login with credentials (EXACTLY like forum_bot.py main())
-                login_success = bot_instance.login(username, password)
+                # Login with verification code handling EXACTLY like forum_bot.py
+                login_success = bot_instance.login(username_hardcoded, password_hardcoded)
                 
                 if not login_success:
                     logger.error("Login failed")
@@ -108,9 +106,9 @@ def api_start():
                     })
                     return
                 
-                # Start continuous monitoring (EXACTLY like forum_bot.py main())
+                # Start continuous monitoring EXACTLY like forum_bot.py main()
                 logger.info("Starting continuous monitoring with 1 second intervals...")
-                bot_instance.continuous_monitor(interval_seconds=1)
+                bot_instance.continuous_monitor(interval)
                 
             except Exception as e:
                 logger.error(f"Error running forum_bot: {e}")
