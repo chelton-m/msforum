@@ -102,19 +102,94 @@ def api_start():
                 bot_instance.driver.get(login_url)
                 time.sleep(3)
                 
-                # Auto-fill username and password
+                # Auto-fill username and password with better selectors
                 try:
-                    username_field = bot_instance.driver.find_element(By.CSS_SELECTOR, "input[placeholder*='account'], input[name='username']")
-                    password_field = bot_instance.driver.find_element(By.CSS_SELECTOR, "input[type='password']")
+                    # Wait for page to load completely
+                    time.sleep(2)
                     
-                    username_field.clear()
-                    username_field.send_keys(username)
-                    password_field.clear()
-                    password_field.send_keys(password)
+                    # Try multiple selectors for username field (same as forum_bot.py)
+                    username_selectors = [
+                        "input[placeholder*='account']",
+                        "input[placeholder*='Account']", 
+                        "input[name='username']",
+                        "input[name='account']",
+                        "input[type='text']",
+                        "input[placeholder*='Please input account']",
+                        "input[placeholder*='please input account']"
+                    ]
                     
-                    logger.info("Username and password filled automatically")
+                    username_field = None
+                    logger.info("Looking for username field...")
+                    for selector in username_selectors:
+                        try:
+                            elements = bot_instance.driver.find_elements(By.CSS_SELECTOR, selector)
+                            logger.info(f"Found {len(elements)} elements with username selector: {selector}")
+                            for element in elements:
+                                if element.is_displayed():
+                                    username_field = element
+                                    logger.info(f"✅ Found username field with selector: {selector}")
+                                    break
+                            if username_field:
+                                break
+                        except Exception as e:
+                            logger.warning(f"Selector {selector} failed: {e}")
+                            continue
+                    
+                    # Try multiple selectors for password field
+                    password_selectors = [
+                        "input[placeholder*='password']",
+                        "input[placeholder*='Password']",
+                        "input[name='password']", 
+                        "input[type='password']",
+                        "input[placeholder*='Please input password']",
+                        "input[placeholder*='please input password']"
+                    ]
+                    
+                    password_field = None
+                    logger.info("Looking for password field...")
+                    for selector in password_selectors:
+                        try:
+                            elements = bot_instance.driver.find_elements(By.CSS_SELECTOR, selector)
+                            logger.info(f"Found {len(elements)} elements with password selector: {selector}")
+                            for element in elements:
+                                if element.is_displayed():
+                                    password_field = element
+                                    logger.info(f"✅ Found password field with selector: {selector}")
+                                    break
+                            if password_field:
+                                break
+                        except Exception as e:
+                            logger.warning(f"Selector {selector} failed: {e}")
+                            continue
+                    
+                    # Fill the fields if found
+                    if username_field and password_field:
+                        logger.info("Filling username...")
+                        username_field.clear()
+                        username_field.send_keys(username)
+                        
+                        logger.info("Filling password...")
+                        password_field.clear()
+                        password_field.send_keys(password)
+                        
+                        logger.info("✅ Username and password filled automatically")
+                    else:
+                        logger.warning("❌ Could not find username or password fields")
+                        # Debug: list all input elements
+                        try:
+                            all_inputs = bot_instance.driver.find_elements(By.TAG_NAME, "input")
+                            logger.info(f"Found {len(all_inputs)} input elements total:")
+                            for i, inp in enumerate(all_inputs):
+                                if inp.is_displayed():
+                                    placeholder = inp.get_attribute('placeholder')
+                                    name = inp.get_attribute('name')
+                                    input_type = inp.get_attribute('type')
+                                    logger.info(f"  Input {i+1}: type='{input_type}', name='{name}', placeholder='{placeholder}'")
+                        except Exception as e:
+                            logger.warning(f"Error listing inputs: {e}")
+                            
                 except Exception as e:
-                    logger.warning(f"Could not auto-fill credentials: {e}")
+                    logger.error(f"Error auto-filling credentials: {e}")
                 
                 # Wait for manual CAPTCHA input (like forum_bot.py does)
                 logger.info("Browser opened! Please enter CAPTCHA manually in the browser window.")
