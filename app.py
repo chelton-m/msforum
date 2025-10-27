@@ -12,6 +12,7 @@ from datetime import datetime
 import os
 try:
     from forum_bot import MicrosoftForumBot
+    from selenium.webdriver.common.by import By
 except ImportError as e:
     print(f"Warning: Could not import forum_bot: {e}")
     MicrosoftForumBot = None
@@ -80,35 +81,79 @@ def api_start():
             'processed_cases': 0
         })
         
-        # Run forum_bot.py directly in background thread
+        # Run forum_bot.py exactly like manual execution
         def run_forum_bot():
             try:
-                import subprocess
-                import os
+                # Use the MicrosoftForumBot class directly
+                if MicrosoftForumBot is None:
+                    update_bot_status({
+                        'running': False,
+                        'error_message': 'Bot module not available'
+                    })
+                    return
                 
-                # Change to the directory where forum_bot.py is located
-                os.chdir('/Users/henrymai/Chelton/work/msforum')
+                # Create bot instance with visible browser (like forum_bot.py main())
+                bot_instance = MicrosoftForumBot(headless=False)
+                bot_instance.setup_driver()
                 
-                # Run forum_bot.py with credentials
-                process = subprocess.Popen([
-                    'python', 'forum_bot.py'
-                ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                # Navigate to login page and auto-fill username/password
+                login_url = "https://ixpt.itechwx.com/login"
+                logger.info(f"Navigating to login page: {login_url}")
+                bot_instance.driver.get(login_url)
+                time.sleep(3)
                 
-                # Send credentials to the process
-                input_data = f"{username}\n{password}\n"  # Username, then password
-                stdout, stderr = process.communicate(input=input_data)
+                # Auto-fill username and password
+                try:
+                    username_field = bot_instance.driver.find_element(By.CSS_SELECTOR, "input[placeholder*='account'], input[name='username']")
+                    password_field = bot_instance.driver.find_element(By.CSS_SELECTOR, "input[type='password']")
+                    
+                    username_field.clear()
+                    username_field.send_keys(username)
+                    password_field.clear()
+                    password_field.send_keys(password)
+                    
+                    logger.info("Username and password filled automatically")
+                except Exception as e:
+                    logger.warning(f"Could not auto-fill credentials: {e}")
                 
-                logger.info(f"Forum bot output: {stdout}")
-                if stderr:
-                    logger.error(f"Forum bot error: {stderr}")
+                # Wait for manual CAPTCHA input (like forum_bot.py does)
+                logger.info("Browser opened! Please enter CAPTCHA manually in the browser window.")
+                logger.info("After entering CAPTCHA, the bot will continue automatically...")
                 
-                update_bot_status({
-                    'running': False,
-                    'error_message': 'Bot process completed'
-                })
+                # Wait for user to manually enter CAPTCHA and click login
+                # Check every 2 seconds if login was successful
+                max_wait_time = 300  # 5 minutes max wait
+                wait_time = 0
+                
+                while wait_time < max_wait_time:
+                    time.sleep(2)
+                    wait_time += 2
+                    
+                    # Check if we're redirected to forum page (login successful)
+                    current_url = bot_instance.driver.current_url
+                    if "MicrosoftForum" in current_url or "login" not in current_url:
+                        logger.info("Login successful! Starting automation...")
+                        break
+                    
+                    # Check if still on login page
+                    if "login" in current_url:
+                        logger.info(f"Waiting for manual CAPTCHA input... ({wait_time}s)")
+                        continue
+                
+                if wait_time >= max_wait_time:
+                    logger.error("Timeout waiting for manual CAPTCHA input")
+                    update_bot_status({
+                        'running': False,
+                        'error_message': 'Timeout waiting for CAPTCHA input'
+                    })
+                    return
+                
+                # Start continuous monitoring (like forum_bot.py main())
+                logger.info("Starting continuous monitoring with 1 second intervals...")
+                bot_instance.continuous_monitor(interval_seconds=1)
                 
             except Exception as e:
-                logger.error(f"Error running forum_bot.py: {e}")
+                logger.error(f"Error running forum_bot: {e}")
                 update_bot_status({
                     'running': False,
                     'error_message': str(e)
