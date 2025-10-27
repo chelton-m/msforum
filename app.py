@@ -10,7 +10,11 @@ import time
 import logging
 from datetime import datetime
 import os
-from forum_bot import MicrosoftForumBot
+try:
+    from forum_bot import MicrosoftForumBot
+except ImportError as e:
+    print(f"Warning: Could not import forum_bot: {e}")
+    MicrosoftForumBot = None
 
 # Configure logging
 logging.basicConfig(
@@ -67,6 +71,9 @@ def api_start():
         password = data.get('password', 'abc@123456')
         
         # Initialize bot
+        if MicrosoftForumBot is None:
+            return jsonify({'success': False, 'message': 'Bot module not available. Please install dependencies.'})
+        
         bot_instance = MicrosoftForumBot(headless=True)  # Run headless for web service
         bot_instance.setup_driver()
         
