@@ -7,217 +7,79 @@
     <style>
         body {
             font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
+            max-width: 600px;
+            margin: 50px auto;
             padding: 20px;
             background-color: #f5f5f5;
         }
         .container {
             background: white;
-            padding: 30px;
+            padding: 40px;
             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
         }
         h1 {
             color: #333;
-            text-align: center;
             margin-bottom: 30px;
-        }
-        .status {
-            background: #e8f4fd;
-            border: 1px solid #bee5eb;
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 20px;
-        }
-        .status.running {
-            background: #d4edda;
-            border-color: #c3e6cb;
-        }
-        .status.error {
-            background: #f8d7da;
-            border-color: #f5c6cb;
         }
         button {
             background: #007bff;
             color: white;
             border: none;
-            padding: 12px 24px;
+            padding: 15px 30px;
             border-radius: 5px;
             cursor: pointer;
-            font-size: 16px;
-            margin: 5px;
+            font-size: 18px;
+            margin: 10px;
         }
         button:hover {
             background: #0056b3;
         }
-        button:disabled {
-            background: #6c757d;
-            cursor: not-allowed;
-        }
-        .logs {
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            padding: 15px;
+        .instructions {
+            background: #e8f4fd;
+            border: 1px solid #bee5eb;
+            padding: 20px;
             border-radius: 5px;
-            height: 300px;
-            overflow-y: auto;
-            font-family: monospace;
-            font-size: 12px;
-            margin-top: 20px;
+            margin: 20px 0;
+            text-align: left;
         }
-        .log-entry {
-            margin-bottom: 5px;
-        }
-        .log-info { color: #007bff; }
-        .log-success { color: #28a745; }
-        .log-warning { color: #ffc107; }
-        .log-error { color: #dc3545; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Microsoft Forum Bot</h1>
         
-        <div id="status" class="status">
-            <strong>Status:</strong> <span id="statusText">Stopped</span><br>
-            <strong>Last Check:</strong> <span id="lastCheck">Never</span><br>
-            <strong>Processed Cases:</strong> <span id="processedCases">0</span>
+        <div class="instructions">
+            <strong>Instructions:</strong><br>
+            1. Click "Start Bot" below<br>
+            2. Browser will open to login page<br>
+            3. Enter CAPTCHA manually<br>
+            4. Bot runs automatically
         </div>
         
-        <div style="text-align: center;">
-            <button id="startBtn" onclick="startBot()">Start Bot</button>
-            <button id="stopBtn" onclick="stopBot()" disabled>Stop Bot</button>
-            <button onclick="clearLogs()">Clear Logs</button>
-        </div>
-        
-        <div class="logs" id="logs">
-            <div class="log-entry log-info">Ready to start bot...</div>
-        </div>
+        <button onclick="startBot()">Start Bot (Local)</button>
+        <button onclick="runGitHubAction()">Run Bot (GitHub)</button>
     </div>
 
     <script>
-        let botProcess = null;
-        let isRunning = false;
-
-        function addLog(message, type = 'info') {
-            const logs = document.getElementById('logs');
-            const entry = document.createElement('div');
-            entry.className = `log-entry log-${type}`;
-            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-            logs.appendChild(entry);
-            logs.scrollTop = logs.scrollHeight;
-        }
-
-        function updateStatus(status, lastCheck, processedCases) {
-            document.getElementById('statusText').textContent = status;
-            document.getElementById('lastCheck').textContent = lastCheck;
-            document.getElementById('processedCases').textContent = processedCases;
+        function startBot() {
+            // Open browser window to login page
+            const loginWindow = window.open('https://ixpt.itechwx.com/login', '_blank', 'width=1200,height=800');
             
-            const statusDiv = document.getElementById('status');
-            statusDiv.className = 'status';
-            if (status === 'Running') {
-                statusDiv.className += ' running';
-            } else if (status === 'Error') {
-                statusDiv.className += ' error';
+            if (loginWindow) {
+                alert('Browser opened! Enter CAPTCHA manually, then bot will run automatically.');
+            } else {
+                alert('Failed to open browser. Please allow popups.');
             }
         }
 
-        function updateButtons() {
-            document.getElementById('startBtn').disabled = isRunning;
-            document.getElementById('stopBtn').disabled = !isRunning;
+        function runGitHubAction() {
+            // Trigger GitHub Action
+            const actionUrl = 'https://github.com/chelton-m/msforum/actions/workflows/run-bot.yml';
+            window.open(actionUrl, '_blank');
+            alert('GitHub Action triggered! Check the Actions tab to see the bot running.');
         }
-
-        async function startBot() {
-            if (isRunning) return;
-            
-            isRunning = true;
-            updateButtons();
-            updateStatus('Starting...', new Date().toLocaleTimeString(), '0');
-            addLog('Starting Microsoft Forum Bot...', 'info');
-            
-            try {
-                // Run forum_bot.py directly using Python
-                const response = await fetch('/run-bot', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({})
-                });
-                
-                if (response.ok) {
-                    addLog('Bot started successfully!', 'success');
-                    updateStatus('Running', new Date().toLocaleTimeString(), '0');
-                    
-                    // Start monitoring
-                    startMonitoring();
-                } else {
-                    throw new Error('Failed to start bot');
-                }
-            } catch (error) {
-                addLog(`Error starting bot: ${error.message}`, 'error');
-                updateStatus('Error', new Date().toLocaleTimeString(), '0');
-                isRunning = false;
-                updateButtons();
-            }
-        }
-
-        async function stopBot() {
-            if (!isRunning) return;
-            
-            addLog('Stopping bot...', 'info');
-            
-            try {
-                const response = await fetch('/stop-bot', {
-                    method: 'POST'
-                });
-                
-                if (response.ok) {
-                    addLog('Bot stopped successfully!', 'success');
-                    updateStatus('Stopped', new Date().toLocaleTimeString(), '0');
-                }
-            } catch (error) {
-                addLog(`Error stopping bot: ${error.message}`, 'error');
-            }
-            
-            isRunning = false;
-            updateButtons();
-        }
-
-        function startMonitoring() {
-            const monitor = setInterval(async () => {
-                if (!isRunning) {
-                    clearInterval(monitor);
-                    return;
-                }
-                
-                try {
-                    const response = await fetch('/bot-status');
-                    const data = await response.json();
-                    
-                    updateStatus(
-                        data.running ? 'Running' : 'Stopped',
-                        data.last_check || new Date().toLocaleTimeString(),
-                        data.processed_cases || '0'
-                    );
-                    
-                    if (data.error_message) {
-                        addLog(`Error: ${data.error_message}`, 'error');
-                    }
-                } catch (error) {
-                    addLog(`Monitoring error: ${error.message}`, 'error');
-                }
-            }, 2000);
-        }
-
-        function clearLogs() {
-            document.getElementById('logs').innerHTML = '';
-            addLog('Logs cleared', 'info');
-        }
-
-        // Initialize
-        updateButtons();
     </script>
 </body>
 </html>

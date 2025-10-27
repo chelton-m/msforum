@@ -1,0 +1,54 @@
+name: Run Microsoft Forum Bot
+
+on:
+  workflow_dispatch:
+    inputs:
+      username:
+        description: 'Username for login'
+        required: true
+        default: 'henry.mai'
+      password:
+        description: 'Password for login'
+        required: true
+        default: 'abc@123456'
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Install Chrome
+      run: |
+        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+    
+    - name: Install ChromeDriver
+      run: |
+        CHROME_VERSION=$(google-chrome --version | cut -d " " -f3 | cut -d "." -f1)
+        wget -O /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}/chromedriver_linux64.zip"
+        unzip /tmp/chromedriver.zip -d /tmp/
+        sudo mv /tmp/chromedriver /usr/local/bin/
+        sudo chmod +x /usr/local/bin/chromedriver
+    
+    - name: Install Tesseract
+      run: |
+        sudo apt-get install -y tesseract-ocr
+    
+    - name: Run bot
+      run: |
+        python forum_bot.py
+      timeout-minutes: 30

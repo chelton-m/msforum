@@ -119,9 +119,9 @@ def monitor_bot():
 
 if __name__ == '__main__':
     print("Starting simple bot server...")
-    print("Open http://localhost:8080 in your browser")
+    print("Open http://localhost:3001 in your browser")
     
-    server = HTTPServer(('localhost', 8080), BotHandler)
+    server = HTTPServer(('localhost', 3001), BotHandler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
