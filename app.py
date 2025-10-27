@@ -182,6 +182,78 @@ def api_login():
         logger.error(f"Error testing login: {e}")
         return jsonify({'success': False, 'message': str(e)})
 
+@app.route('/api/command', methods=['POST'])
+def api_command():
+    """Execute custom commands on the bot"""
+    global bot_instance
+    
+    try:
+        data = request.get_json()
+        command = data.get('command', '').strip().lower()
+        parameters = data.get('parameters', {})
+        
+        if not bot_instance:
+            return jsonify({'success': False, 'message': 'Bot not initialized. Please start the bot first.'})
+        
+        # Handle different commands
+        if command == 'check_cases':
+            # Check for new cases
+            cases_found = bot_instance.check_for_new_cases()
+            return jsonify({
+                'success': True, 
+                'message': f'Found {cases_found} new cases',
+                'data': {'cases_found': cases_found}
+            })
+        
+        elif command == 'process_case':
+            # Process a specific case
+            case_id = parameters.get('case_id')
+            if not case_id:
+                return jsonify({'success': False, 'message': 'Case ID required'})
+            
+            success = bot_instance.process_specific_case(case_id)
+            return jsonify({
+                'success': success,
+                'message': f'Case {case_id} processed successfully' if success else f'Failed to process case {case_id}'
+            })
+        
+        elif command == 'get_status':
+            # Get detailed status
+            return jsonify({
+                'success': True,
+                'message': 'Status retrieved',
+                'data': {
+                    'running': bot_status['running'],
+                    'login_status': bot_status['login_status'],
+                    'total_cases': bot_status['total_cases'],
+                    'processed_cases': bot_status['processed_cases'],
+                    'last_check': bot_status['last_check']
+                }
+            })
+        
+        elif command == 'custom_action':
+            # Execute custom automation action
+            action = parameters.get('action')
+            if not action:
+                return jsonify({'success': False, 'message': 'Action parameter required'})
+            
+            # You can add more custom actions here
+            if action == 'refresh_page':
+                bot_instance.driver.refresh()
+                return jsonify({'success': True, 'message': 'Page refreshed'})
+            elif action == 'take_screenshot':
+                screenshot = bot_instance.driver.get_screenshot_as_base64()
+                return jsonify({'success': True, 'message': 'Screenshot taken', 'data': {'screenshot': screenshot}})
+            else:
+                return jsonify({'success': False, 'message': f'Unknown action: {action}'})
+        
+        else:
+            return jsonify({'success': False, 'message': f'Unknown command: {command}'})
+            
+    except Exception as e:
+        logger.error(f"Error executing command: {e}")
+        return jsonify({'success': False, 'message': str(e)})
+
 @app.route('/api/logs')
 def api_logs():
     """Get recent log entries"""

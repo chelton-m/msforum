@@ -179,6 +179,70 @@
             </div>
         </div>
 
+        <!-- Command Interface -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-terminal me-2"></i>Command Interface</h5>
+                        <small class="text-muted">Execute custom commands on the bot</small>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-md-8">
+                                <div class="input-group">
+                                    <select class="form-select" id="commandSelect" onchange="updateCommandInput()">
+                                        <option value="">Select a command...</option>
+                                        <option value="check_cases">Check for new cases</option>
+                                        <option value="process_case">Process specific case</option>
+                                        <option value="get_status">Get detailed status</option>
+                                        <option value="custom_action">Custom action</option>
+                                    </select>
+                                    <input type="text" class="form-control" id="commandInput" placeholder="Enter command parameters..." disabled>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <button type="button" class="btn btn-primary w-100" onclick="executeCommand()" {{ 'disabled' if not status.running else '' }}>
+                                    <i class="fas fa-play me-2"></i>Execute Command
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Quick Command Buttons -->
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h6>Quick Commands:</h6>
+                                <div class="btn-group" role="group">
+                                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="quickCommand('check_cases')" {{ 'disabled' if not status.running else '' }}>
+                                        <i class="fas fa-search me-1"></i>Check Cases
+                                    </button>
+                                    <button type="button" class="btn btn-outline-info btn-sm" onclick="quickCommand('get_status')" {{ 'disabled' if not status.running else '' }}>
+                                        <i class="fas fa-info-circle me-1"></i>Get Status
+                                    </button>
+                                    <button type="button" class="btn btn-outline-warning btn-sm" onclick="quickCommand('custom_action', 'refresh_page')" {{ 'disabled' if not status.running else '' }}>
+                                        <i class="fas fa-refresh me-1"></i>Refresh Page
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="quickCommand('custom_action', 'take_screenshot')" {{ 'disabled' if not status.running else '' }}>
+                                        <i class="fas fa-camera me-1"></i>Screenshot
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Command Output -->
+                        <div class="row mt-3" id="commandOutput" style="display: none;">
+                            <div class="col-md-12">
+                                <div class="alert alert-info">
+                                    <h6><i class="fas fa-terminal me-2"></i>Command Output:</h6>
+                                    <div id="commandResult" class="font-monospace"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Logs -->
         <div class="row">
             <div class="col-md-12">
@@ -418,6 +482,117 @@
             // Show toast
             const bsToast = new bootstrap.Toast(toast);
             bsToast.show();
+        }
+
+        // Command Interface Functions
+        function updateCommandInput() {
+            const commandSelect = document.getElementById('commandSelect');
+            const commandInput = document.getElementById('commandInput');
+            const selectedCommand = commandSelect.value;
+            
+            commandInput.disabled = false;
+            
+            switch(selectedCommand) {
+                case 'check_cases':
+                    commandInput.placeholder = 'No parameters needed';
+                    commandInput.disabled = true;
+                    break;
+                case 'process_case':
+                    commandInput.placeholder = 'Enter case ID (e.g., 12345)';
+                    break;
+                case 'get_status':
+                    commandInput.placeholder = 'No parameters needed';
+                    commandInput.disabled = true;
+                    break;
+                case 'custom_action':
+                    commandInput.placeholder = 'Enter action (e.g., refresh_page, take_screenshot)';
+                    break;
+                default:
+                    commandInput.placeholder = 'Enter command parameters...';
+                    commandInput.disabled = true;
+            }
+        }
+
+        async function executeCommand() {
+            const commandSelect = document.getElementById('commandSelect');
+            const commandInput = document.getElementById('commandInput');
+            const command = commandSelect.value;
+            const parameters = {};
+            
+            if (!command) {
+                showToast('Please select a command', 'warning');
+                return;
+            }
+            
+            // Parse parameters based on command
+            if (command === 'process_case') {
+                const caseId = commandInput.value.trim();
+                if (!caseId) {
+                    showToast('Please enter a case ID', 'warning');
+                    return;
+                }
+                parameters.case_id = caseId;
+            } else if (command === 'custom_action') {
+                const action = commandInput.value.trim();
+                if (!action) {
+                    showToast('Please enter an action', 'warning');
+                    return;
+                }
+                parameters.action = action;
+            }
+            
+            showToast('Executing command...', 'info');
+            const result = await apiCall('/api/command', 'POST', { command, parameters });
+            
+            // Show command output
+            const commandOutput = document.getElementById('commandOutput');
+            const commandResult = document.getElementById('commandResult');
+            
+            commandOutput.style.display = 'block';
+            commandResult.innerHTML = `
+                <strong>Command:</strong> ${command}<br>
+                <strong>Parameters:</strong> ${JSON.stringify(parameters)}<br>
+                <strong>Result:</strong> ${result.success ? 'Success' : 'Failed'}<br>
+                <strong>Message:</strong> ${result.message}<br>
+                ${result.data ? `<strong>Data:</strong> ${JSON.stringify(result.data)}` : ''}
+            `;
+            
+            if (result.success) {
+                showToast('Command executed successfully!', 'success');
+                refreshStatus();
+            } else {
+                showToast('Command failed: ' + result.message, 'error');
+            }
+        }
+
+        async function quickCommand(command, action = null) {
+            const parameters = {};
+            if (action) {
+                parameters.action = action;
+            }
+            
+            showToast(`Executing ${command}...`, 'info');
+            const result = await apiCall('/api/command', 'POST', { command, parameters });
+            
+            // Show command output
+            const commandOutput = document.getElementById('commandOutput');
+            const commandResult = document.getElementById('commandResult');
+            
+            commandOutput.style.display = 'block';
+            commandResult.innerHTML = `
+                <strong>Command:</strong> ${command}<br>
+                <strong>Parameters:</strong> ${JSON.stringify(parameters)}<br>
+                <strong>Result:</strong> ${result.success ? 'Success' : 'Failed'}<br>
+                <strong>Message:</strong> ${result.message}<br>
+                ${result.data ? `<strong>Data:</strong> ${JSON.stringify(result.data)}` : ''}
+            `;
+            
+            if (result.success) {
+                showToast('Command executed successfully!', 'success');
+                refreshStatus();
+            } else {
+                showToast('Command failed: ' + result.message, 'error');
+            }
         }
 
         // Cleanup on page unload
