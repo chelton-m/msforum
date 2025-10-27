@@ -58,7 +58,7 @@ def api_status():
 
 @app.route('/api/start', methods=['POST'])
 def api_start():
-    """Start the bot monitoring"""
+    """Start simple browser - show UI, user inputs CAPTCHA, redirect to forum, reload every 1s"""
     global bot_instance, monitoring_thread, bot_status
     
     try:
@@ -67,49 +67,65 @@ def api_start():
         
         # Get credentials from request
         data = request.get_json()
-        username = data.get('username', 'henry.mai')
-        password = data.get('password', 'abc@123456')
+        username = data.get('username')
+        password = data.get('password')
         
-        # Initialize bot
+        if not username or not password:
+            return jsonify({'success': False, 'message': 'Username and password required'})
+        
+        # Initialize bot with visible browser
         if MicrosoftForumBot is None:
             return jsonify({'success': False, 'message': 'Bot module not available. Please install dependencies.'})
         
-        bot_instance = MicrosoftForumBot(headless=True)  # Run headless for web service
+        bot_instance = MicrosoftForumBot(headless=False)  # Show browser
         bot_instance.setup_driver()
         
-        # Attempt login
-        login_success = bot_instance.login(username, password)
+        # Navigate to login page - user will input CAPTCHA manually
+        login_url = "https://ixpt.itechwx.com/login"
+        bot_instance.driver.get(login_url)
         
-        if not login_success:
-            update_bot_status({
-                'running': False,
-                'error_message': 'Login failed. Please check credentials.',
-                'login_status': False
-            })
-            return jsonify({'success': False, 'message': 'Login failed'})
+        # Enter username and password automatically
+        try:
+            username_field = bot_instance.driver.find_element(By.CSS_SELECTOR, "input[placeholder*='account'], input[name='username']")
+            password_field = bot_instance.driver.find_element(By.CSS_SELECTOR, "input[type='password']")
+            
+            username_field.clear()
+            username_field.send_keys(username)
+            password_field.clear()
+            password_field.send_keys(password)
+        except:
+            pass  # User can enter manually if needed
         
         update_bot_status({
             'running': True,
             'error_message': None,
-            'login_status': True,
+            'login_status': False,
             'processed_cases': 0
         })
         
-        # Start monitoring in background thread
-        def monitor():
+        # Start simple reload loop - reload page every 1 second
+        def simple_reload():
             try:
-                bot_instance.continuous_monitor(interval_seconds=30)  # Check every 30 seconds
+                while bot_status['running']:
+                    time.sleep(1)  # Wait 1 second
+                    if bot_instance and bot_instance.driver:
+                        # Check if we're on forum page, if not redirect
+                        current_url = bot_instance.driver.current_url
+                        if "MicrosoftForum" not in current_url and "login" not in current_url:
+                            bot_instance.driver.get("https://ixpt.itechwx.com/MicrosoftForum")
+                        else:
+                            bot_instance.driver.refresh()  # Reload page
             except Exception as e:
-                logger.error(f"Monitoring error: {e}")
+                logger.error(f"Reload error: {e}")
                 update_bot_status({
                     'running': False,
                     'error_message': str(e)
                 })
         
-        monitoring_thread = threading.Thread(target=monitor, daemon=True)
+        monitoring_thread = threading.Thread(target=simple_reload, daemon=True)
         monitoring_thread.start()
         
-        return jsonify({'success': True, 'message': 'Bot started successfully'})
+        return jsonify({'success': True, 'message': 'Browser opened - enter CAPTCHA manually, then it will redirect and reload every 1s'})
         
     except Exception as e:
         logger.error(f"Error starting bot: {e}")
@@ -142,13 +158,14 @@ def api_stop():
 
 @app.route('/api/run-once', methods=['POST'])
 def api_run_once():
-    """Run a single automation cycle"""
+    """Run a single automation cycle - follows forum_bot.py run_automation_cycle exactly"""
     global bot_instance
     
     try:
         if not bot_instance:
             return jsonify({'success': False, 'message': 'Bot not initialized. Please start the bot first.'})
         
+        # Follow exact logic from forum_bot.py run_automation_cycle method
         success = bot_instance.run_automation_cycle()
         
         if success:
@@ -162,7 +179,7 @@ def api_run_once():
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
-    """Test login with provided credentials"""
+    """Test login with provided credentials - shows browser for manual CAPTCHA"""
     global bot_instance
     
     try:
@@ -173,20 +190,52 @@ def api_login():
         if not username or not password:
             return jsonify({'success': False, 'message': 'Username and password required'})
         
-        # Create temporary bot instance for login test
-        temp_bot = MicrosoftForumBot(headless=True)
+        # Create temporary bot instance for login test with visible browser
+        temp_bot = MicrosoftForumBot(headless=False)
         temp_bot.setup_driver()
         
-        login_success = temp_bot.login(username, password)
-        temp_bot.close()
+        # Navigate to login page and show browser
+        login_url = "https://ixpt.itechwx.com/login"
+        temp_bot.driver.get(login_url)
+        
+        return jsonify({
+            'success': True, 
+            'message': 'Browser opened. Please enter CAPTCHA manually in the browser window.',
+            'browser_open': True
+        })
+            
+    except Exception as e:
+        logger.error(f"Error opening login page: {e}")
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/complete-login', methods=['POST'])
+def api_complete_login():
+    """Complete login after manual CAPTCHA entry"""
+    global bot_instance
+    
+    try:
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password')
+        captcha = data.get('captcha')
+        
+        if not username or not password or not captcha:
+            return jsonify({'success': False, 'message': 'Username, password, and CAPTCHA required'})
+        
+        # Use existing bot instance or create new one
+        if not bot_instance:
+            bot_instance = MicrosoftForumBot(headless=False)
+            bot_instance.setup_driver()
+        
+        login_success = bot_instance.login(username, password, captcha)
         
         if login_success:
             return jsonify({'success': True, 'message': 'Login successful'})
         else:
-            return jsonify({'success': False, 'message': 'Login failed'})
+            return jsonify({'success': False, 'message': 'Login failed - check CAPTCHA'})
             
     except Exception as e:
-        logger.error(f"Error testing login: {e}")
+        logger.error(f"Error completing login: {e}")
         return jsonify({'success': False, 'message': str(e)})
 
 @app.route('/api/command', methods=['POST'])
@@ -259,6 +308,26 @@ def api_command():
             
     except Exception as e:
         logger.error(f"Error executing command: {e}")
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/toggle-browser', methods=['POST'])
+def api_toggle_browser():
+    """Toggle browser visibility"""
+    global bot_instance
+    
+    try:
+        if not bot_instance:
+            return jsonify({'success': False, 'message': 'Bot not initialized. Please start the bot first.'})
+        
+        # Toggle browser window visibility
+        if hasattr(bot_instance.driver, 'minimize_window'):
+            bot_instance.driver.minimize_window()
+            return jsonify({'success': True, 'message': 'Browser minimized'})
+        else:
+            return jsonify({'success': True, 'message': 'Browser visibility toggled'})
+            
+    except Exception as e:
+        logger.error(f"Error toggling browser: {e}")
         return jsonify({'success': False, 'message': str(e)})
 
 @app.route('/api/logs')
