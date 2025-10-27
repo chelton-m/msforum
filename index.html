@@ -105,13 +105,11 @@
         </div>
 
         <!-- Error Message -->
-        {% if status.error_message %}
-        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <div id="errorAlert" class="alert alert-danger alert-dismissible fade show" style="display: none;" role="alert">
             <i class="fas fa-exclamation-triangle me-2"></i>
-            <strong>Error:</strong> {{ status.error_message }}
+            <strong>Error:</strong> <span id="errorMessage"></span>
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
-        {% endif %}
 
         <!-- Credentials Form -->
         <div class="credentials-form">
@@ -295,14 +293,16 @@
             logsInterval = setInterval(refreshLogs, 10000);
         });
 
-        // Mock API Functions for GitHub Pages
+        // Mock API Functions for GitHub Pages - NO REAL API CALLS
         async function apiCall(url, method = 'GET', data = null) {
-            // Simulate API calls for GitHub Pages
+            // Always return simulated data, never make real API calls
             return new Promise((resolve) => {
                 setTimeout(() => {
                     if (url.includes('/api/start')) {
+                        botRunning = true;
                         resolve({ success: true, message: 'Bot started successfully (simulated)' });
                     } else if (url.includes('/api/stop')) {
+                        botRunning = false;
                         resolve({ success: true, message: 'Bot stopped successfully (simulated)' });
                     } else if (url.includes('/api/run-once')) {
                         resolve({ success: true, message: 'Automation cycle completed (simulated)' });
@@ -330,7 +330,7 @@
                     } else {
                         resolve({ success: false, message: 'Unknown endpoint' });
                     }
-                }, 500);
+                }, 100);
             });
         }
 
