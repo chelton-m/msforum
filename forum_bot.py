@@ -732,6 +732,12 @@ class MicrosoftForumBot:
         Select the first checkbox in the first row only
         """
         try:
+            # Ensure the page is set to Online before interacting
+            try:
+                self.ensure_online()
+            except Exception as e:
+                logger.warning(f"Could not ensure online state: {e}")
+
             # Wait for table to load
             time.sleep(1)
             
@@ -767,6 +773,56 @@ class MicrosoftForumBot:
         except Exception as e:
             logger.error(f"Error selecting checkbox: {e}")
             return 0
+
+    def ensure_online(self):
+        """Ensure the Online switch is ON before proceeding.
+
+        Looks for Ant Design switch button (role='switch'). If aria-checked='false',
+        clicks it and waits 0.5s to become true.
+        """
+        try:
+            # Prefer exact role-based selector
+            switch_buttons = self.driver.find_elements(By.XPATH, "//button[@role='switch' and contains(@class,'ant-switch')]")
+            if not switch_buttons:
+                # Fallback to class-only selector
+                switch_buttons = self.driver.find_elements(By.XPATH, "//button[contains(@class,'ant-switch')]")
+
+            if not switch_buttons:
+                logger.info("No switch found; assuming already online or control not present")
+                return True
+
+            # Choose the first visible switch
+            target_switch = None
+            for btn in switch_buttons:
+                if btn.is_displayed():
+                    target_switch = btn
+                    break
+
+            if not target_switch:
+                logger.info("Switch not visible; skipping online toggle")
+                return True
+
+            aria_checked = target_switch.get_attribute('aria-checked')
+            logger.info(f"Switch aria-checked={aria_checked}")
+
+            if aria_checked == 'false':
+                logger.info("Toggling switch to Online...")
+                try:
+                    target_switch.click()
+                except Exception:
+                    # Fallback JS click
+                    self.driver.execute_script("arguments[0].click();", target_switch)
+                time.sleep(0.5)
+
+                # Verify
+                new_state = target_switch.get_attribute('aria-checked')
+                logger.info(f"Switch new aria-checked={new_state}")
+                return new_state == 'true'
+
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to toggle Online switch: {e}")
+            return False
     
     def _try_checkbox_selection_strategies(self, checkbox, checkbox_num):
         """
@@ -1192,6 +1248,12 @@ class MicrosoftForumBot:
                     time.sleep(10)  # Wait for manual login
                     continue
                 
+                # Make sure we are Online before interacting
+                try:
+                    self.ensure_online()
+                except Exception as e:
+                    logger.warning(f"Online ensure failed: {e}")
+
                 # Check for checkboxes (cases) - use simple approach
                 try:
                     # Find checkboxes using the exact structure
