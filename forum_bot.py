@@ -729,7 +729,7 @@ class MicrosoftForumBot:
     
     def select_first_checkbox(self):
         """
-        Select the first checkbox in the first row only
+        Select ONLY the first checkbox in the first row, even if multiple checkboxes appear
         """
         try:
             # Ensure the page is set to Online before interacting
@@ -741,37 +741,49 @@ class MicrosoftForumBot:
             # Wait for table to load
             time.sleep(1)
             
-            # Find the first checkbox using the exact structure from your HTML
-            checkbox = self.driver.find_element(By.XPATH, "//tr[@class='ant-table-row ant-table-row-level-0']//input[@type='checkbox']")
+            # Find ALL checkboxes first to see how many there are
+            all_checkboxes = self.driver.find_elements(By.XPATH, "//tr[@class='ant-table-row ant-table-row-level-0']//input[@type='checkbox']")
+            logger.info(f"📊 Found {len(all_checkboxes)} total checkboxes")
             
-            if not checkbox.is_selected():
+            if len(all_checkboxes) == 0:
+                logger.warning("No checkboxes found")
+                return 0
+            
+            # Select ONLY the first checkbox (index 0)
+            first_checkbox = all_checkboxes[0]
+            logger.info(f"🎯 Targeting ONLY the first checkbox (1 of {len(all_checkboxes)})")
+            
+            if not first_checkbox.is_selected():
                 logger.info("🎯 Clicking first checkbox...")
                 
-                # Scroll to checkbox
-                self.driver.execute_script("arguments[0].scrollIntoView(true);", checkbox)
+                # Scroll to first checkbox
+                self.driver.execute_script("arguments[0].scrollIntoView(true);", first_checkbox)
                 time.sleep(0.5)
+                
+                # Find the label wrapper for the FIRST checkbox only
+                first_row = self.driver.find_element(By.XPATH, "//tr[@class='ant-table-row ant-table-row-level-0'][1]")
+                first_label = first_row.find_element(By.XPATH, ".//label[@class='ant-checkbox-wrapper']")
                 
                 # Click the label wrapper (this is what works for Ant Design)
-                label = self.driver.find_element(By.XPATH, "//tr[@class='ant-table-row ant-table-row-level-0']//label[@class='ant-checkbox-wrapper']")
-                label.click()
+                first_label.click()
                 time.sleep(0.5)
                 
-                if checkbox.is_selected():
-                    logger.info("✅ Checkbox selected successfully")
+                if first_checkbox.is_selected():
+                    logger.info("✅ First checkbox selected successfully")
                     return 1
                 else:
-                    logger.warning("⚠️ Checkbox click failed, trying direct input click")
-                    checkbox.click()
+                    logger.warning("⚠️ Label click failed, trying direct input click")
+                    first_checkbox.click()
                     time.sleep(0.5)
-                    if checkbox.is_selected():
-                        logger.info("✅ Checkbox selected with direct click")
+                    if first_checkbox.is_selected():
+                        logger.info("✅ First checkbox selected with direct click")
                         return 1
             else:
-                logger.info("Checkbox already selected")
+                logger.info("First checkbox already selected")
                 return 1
                 
         except Exception as e:
-            logger.error(f"Error selecting checkbox: {e}")
+            logger.error(f"Error selecting first checkbox: {e}")
             return 0
 
     def ensure_online(self):
