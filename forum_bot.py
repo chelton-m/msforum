@@ -735,90 +735,299 @@ class MicrosoftForumBot:
             # Wait for table to load
             time.sleep(1)
             
-            # Find all checkboxes - use simple working selectors
-            checkbox_selectors = [
-                "//input[@type='checkbox']",
-                "//input[@class='ant-checkbox-input']",
-                "//div[@class='ant-table-container']//input[@type='checkbox']",
-                "//div[contains(@class, 'ant-table')]//input[@type='checkbox']"
+            # Find the first checkbox using the exact structure from your HTML
+            checkbox = self.driver.find_element(By.XPATH, "//tr[@class='ant-table-row ant-table-row-level-0']//input[@type='checkbox']")
+            
+            if not checkbox.is_selected():
+                logger.info("🎯 Clicking first checkbox...")
+                
+                # Scroll to checkbox
+                self.driver.execute_script("arguments[0].scrollIntoView(true);", checkbox)
+                time.sleep(0.5)
+                
+                # Click the label wrapper (this is what works for Ant Design)
+                label = self.driver.find_element(By.XPATH, "//tr[@class='ant-table-row ant-table-row-level-0']//label[@class='ant-checkbox-wrapper']")
+                label.click()
+                time.sleep(0.5)
+                
+                if checkbox.is_selected():
+                    logger.info("✅ Checkbox selected successfully")
+                    return 1
+                else:
+                    logger.warning("⚠️ Checkbox click failed, trying direct input click")
+                    checkbox.click()
+                    time.sleep(0.5)
+                    if checkbox.is_selected():
+                        logger.info("✅ Checkbox selected with direct click")
+                        return 1
+            else:
+                logger.info("Checkbox already selected")
+                return 1
+                
+        except Exception as e:
+            logger.error(f"Error selecting checkbox: {e}")
+            return 0
+    
+    def _try_checkbox_selection_strategies(self, checkbox, checkbox_num):
+        """
+        Try multiple strategies to select a checkbox
+        """
+        strategies = [
+            self._strategy_click_wrapper,
+            self._strategy_click_inner_span,
+            self._strategy_click_cell,
+            self._strategy_click_row,
+            self._strategy_click_input_direct,
+            self._strategy_javascript_click,
+            self._strategy_javascript_set_checked,
+            self._strategy_force_click,
+            self._strategy_simulate_user_action
+        ]
+        
+        for i, strategy in enumerate(strategies, 1):
+            try:
+                logger.info(f"  Trying strategy {i}...")
+                if strategy(checkbox):
+                    if checkbox.is_selected():
+                        logger.info(f"✅ Checkbox {checkbox_num} selected successfully with strategy {i}")
+                        return True
+                    else:
+                        logger.warning(f"⚠️ Strategy {i} executed but checkbox not selected")
+                else:
+                    logger.warning(f"⚠️ Strategy {i} failed")
+            except Exception as e:
+                logger.warning(f"⚠️ Strategy {i} error: {e}")
+                continue
+        
+        logger.error(f"❌ All strategies failed for checkbox {checkbox_num}")
+        return False
+    
+    def _strategy_click_wrapper(self, checkbox):
+        """Strategy 1: Click the wrapper element (Ant Design pattern)"""
+        try:
+            # First try to find the exact wrapper structure from the HTML
+            wrapper_selectors = [
+                # Exact match for the provided HTML structure
+                "//label[@class='ant-checkbox-wrapper'][.//input[@type='checkbox']]",
+                "//td[@class='ant-table-cell ant-table-selection-column']//label[@class='ant-checkbox-wrapper']",
+                "//tr[@class='ant-table-row ant-table-row-level-0']//label[@class='ant-checkbox-wrapper']",
+                # Broader selectors
+                "//span[contains(@class, 'ant-checkbox-wrapper')][.//input[@type='checkbox']]",
+                "//span[contains(@class, 'ant-checkbox')][.//input[@type='checkbox']]"
             ]
             
-            checkboxes = []
-            for selector in checkbox_selectors:
+            for selector in wrapper_selectors:
                 try:
-                    checkboxes = self.driver.find_elements(By.XPATH, selector)
-                    if checkboxes:
-                        logger.info(f"Found {len(checkboxes)} checkboxes with selector: {selector}")
-                        break
-                except:
-                    continue
-            
-            if not checkboxes:
-                logger.warning("No checkboxes found - debugging page content...")
-                # Debug: list all input elements
-                try:
-                    all_inputs = self.driver.find_elements(By.TAG_NAME, "input")
-                    logger.info(f"Found {len(all_inputs)} input elements total:")
-                    for i, inp in enumerate(all_inputs):
-                        if inp.is_displayed():
-                            input_type = inp.get_attribute('type')
-                            input_class = inp.get_attribute('class')
-                            input_id = inp.get_attribute('id')
-                            logger.info(f"  Input {i+1}: type='{input_type}', class='{input_class}', id='{input_id}'")
+                    wrappers = self.driver.find_elements(By.XPATH, selector)
+                    logger.info(f"    Found {len(wrappers)} wrappers with selector: {selector}")
                     
-                    # Also check current URL
-                    current_url = self.driver.current_url
-                    logger.info(f"Current URL: {current_url}")
-                    
-                    # Check if we're on login page
-                    if "login" in current_url:
-                        logger.error("❌ Still on login page - need to login first!")
-                        return 0
-                    
-                    # Check page title
-                    page_title = self.driver.title
-                    logger.info(f"Page title: {page_title}")
-                    
-                except Exception as e:
-                    logger.warning(f"Error listing inputs: {e}")
-                return 0
-            
-            # Count total visible checkboxes (cases)
-            visible_checkboxes = [cb for cb in checkboxes if cb.is_displayed()]
-            logger.info(f"📊 Total cases found: {len(visible_checkboxes)}")
-            
-            # Click ONLY the FIRST checkbox
-            for i, checkbox in enumerate(visible_checkboxes):
-                try:
-                    if not checkbox.is_selected():
-                        logger.info(f"🎯 Clicking FIRST checkbox (case {i+1})...")
-                        
-                        # Scroll to checkbox if needed
-                        self.driver.execute_script("arguments[0].scrollIntoView(true);", checkbox)
-                        time.sleep(0.2)
-                        
-                        # Try multiple click methods
+                    for j, wrapper in enumerate(wrappers):
                         try:
-                            checkbox.click()
-                        except:
-                            # If normal click fails, try JavaScript click
-                            self.driver.execute_script("arguments[0].click();", checkbox)
-                        
-                        logger.info(f"✅ First checkbox selected successfully")
-                        return 1
-                    else:
-                        logger.info(f"Checkbox {i+1} already selected")
-                        
+                            # Check if this wrapper contains our specific checkbox
+                            wrapper_inputs = wrapper.find_elements(By.XPATH, ".//input[@type='checkbox']")
+                            if checkbox in wrapper_inputs:
+                                logger.info(f"    Clicking wrapper {j+1} that contains our checkbox")
+                                # Scroll to wrapper first
+                                self.driver.execute_script("arguments[0].scrollIntoView(true);", wrapper)
+                                time.sleep(0.2)
+                                wrapper.click()
+                                time.sleep(0.5)
+                                return True
+                        except Exception as e:
+                            logger.warning(f"    Error checking wrapper {j+1}: {e}")
+                            continue
                 except Exception as e:
-                    logger.warning(f"Failed to select first checkbox: {e}")
+                    logger.warning(f"    Error with selector {selector}: {e}")
                     continue
             
-            logger.info("No unselected checkboxes found")
-            return 0
+            # Fallback: find wrapper using JavaScript - more specific to the structure
+            logger.info("    Trying JavaScript wrapper detection...")
+            wrapper = self.driver.execute_script("""
+                var input = arguments[0];
+                // Look for the label with ant-checkbox-wrapper class
+                var parent = input.parentElement;
+                while (parent) {
+                    if (parent.tagName === 'LABEL' && parent.classList.contains('ant-checkbox-wrapper')) {
+                        return parent;
+                    }
+                    parent = parent.parentElement;
+                }
+                return null;
+            """, checkbox)
             
+            if wrapper:
+                logger.info("    Found wrapper via JavaScript, clicking...")
+                self.driver.execute_script("arguments[0].scrollIntoView(true);", wrapper)
+                time.sleep(0.2)
+                wrapper.click()
+                time.sleep(0.5)
+                return True
+            else:
+                logger.warning("    No wrapper found via JavaScript")
+                
         except Exception as e:
-            logger.error(f"Error selecting first checkbox: {e}")
-            return 0
+            logger.warning(f"Wrapper click strategy failed: {e}")
+        
+        return False
+    
+    def _strategy_click_inner_span(self, checkbox):
+        """Strategy 2: Click the ant-checkbox-inner span (visual checkbox)"""
+        try:
+            # Find the ant-checkbox-inner span that's a sibling of the input
+            inner_span = self.driver.execute_script("""
+                var input = arguments[0];
+                var parent = input.parentElement;
+                if (parent) {
+                    var spans = parent.getElementsByClassName('ant-checkbox-inner');
+                    if (spans.length > 0) {
+                        return spans[0];
+                    }
+                }
+                return null;
+            """, checkbox)
+            
+            if inner_span:
+                logger.info("    Found ant-checkbox-inner span, clicking...")
+                self.driver.execute_script("arguments[0].scrollIntoView(true);", inner_span)
+                time.sleep(0.2)
+                inner_span.click()
+                time.sleep(0.5)
+                return True
+            else:
+                logger.warning("    No ant-checkbox-inner span found")
+                
+        except Exception as e:
+            logger.warning(f"Inner span click strategy failed: {e}")
+        
+        return False
+    
+    def _strategy_click_cell(self, checkbox):
+        """Strategy 3: Click the table cell containing the checkbox"""
+        try:
+            # Find the table cell that contains this checkbox
+            cell = self.driver.execute_script("""
+                var input = arguments[0];
+                var parent = input.parentElement;
+                while (parent && parent.tagName !== 'TD') {
+                    parent = parent.parentElement;
+                }
+                return parent;
+            """, checkbox)
+            
+            if cell:
+                logger.info("    Found table cell, clicking...")
+                self.driver.execute_script("arguments[0].scrollIntoView(true);", cell)
+                time.sleep(0.2)
+                cell.click()
+                time.sleep(0.5)
+                return True
+            else:
+                logger.warning("    No table cell found")
+                
+        except Exception as e:
+            logger.warning(f"Cell click strategy failed: {e}")
+        
+        return False
+    
+    def _strategy_click_row(self, checkbox):
+        """Strategy 2: Click the table row containing the checkbox"""
+        try:
+            # Find the table row that contains this checkbox
+            row = self.driver.execute_script("""
+                var input = arguments[0];
+                var parent = input.parentElement;
+                while (parent && parent.tagName !== 'TR') {
+                    parent = parent.parentElement;
+                }
+                return parent;
+            """, checkbox)
+            
+            if row:
+                logger.info("    Found table row, clicking...")
+                row.click()
+                time.sleep(0.5)
+                return True
+            else:
+                logger.warning("    No table row found")
+                
+        except Exception as e:
+            logger.warning(f"Row click strategy failed: {e}")
+        
+        return False
+    
+    def _strategy_click_input_direct(self, checkbox):
+        """Strategy 2: Click the input directly"""
+        try:
+            checkbox.click()
+            time.sleep(0.3)
+            return True
+        except Exception as e:
+            logger.warning(f"Direct input click failed: {e}")
+            return False
+    
+    def _strategy_javascript_click(self, checkbox):
+        """Strategy 3: JavaScript click"""
+        try:
+            self.driver.execute_script("arguments[0].click();", checkbox)
+            time.sleep(0.3)
+            return True
+        except Exception as e:
+            logger.warning(f"JavaScript click failed: {e}")
+            return False
+    
+    def _strategy_javascript_set_checked(self, checkbox):
+        """Strategy 4: Set checked property and trigger events"""
+        try:
+            self.driver.execute_script("""
+                arguments[0].checked = true;
+                arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
+                arguments[0].dispatchEvent(new Event('click', { bubbles: true }));
+                arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
+            """, checkbox)
+            time.sleep(0.3)
+            return True
+        except Exception as e:
+            logger.warning(f"JavaScript set checked failed: {e}")
+            return False
+    
+    def _strategy_force_click(self, checkbox):
+        """Strategy 5: Force click with multiple methods"""
+        try:
+            # Try ActionChains
+            from selenium.webdriver.common.action_chains import ActionChains
+            actions = ActionChains(self.driver)
+            actions.move_to_element(checkbox).click().perform()
+            time.sleep(0.3)
+            return True
+        except Exception as e:
+            logger.warning(f"Force click failed: {e}")
+            return False
+    
+    def _strategy_simulate_user_action(self, checkbox):
+        """Strategy 6: Simulate complete user action"""
+        try:
+            # Focus the element first
+            self.driver.execute_script("arguments[0].focus();", checkbox)
+            time.sleep(0.1)
+            
+            # Mouse over
+            from selenium.webdriver.common.action_chains import ActionChains
+            actions = ActionChains(self.driver)
+            actions.move_to_element(checkbox).perform()
+            time.sleep(0.1)
+            
+            # Click with mouse
+            actions.click(checkbox).perform()
+            time.sleep(0.3)
+            
+            # Also trigger keyboard space
+            checkbox.send_keys(" ")
+            time.sleep(0.3)
+            
+            return True
+        except Exception as e:
+            logger.warning(f"Simulate user action failed: {e}")
+            return False
     
     def click_confirm(self):
         """
@@ -983,33 +1192,15 @@ class MicrosoftForumBot:
                     time.sleep(10)  # Wait for manual login
                     continue
                 
-                # Check for checkboxes (cases) - use same selectors as select_first_checkbox
+                # Check for checkboxes (cases) - use simple approach
                 try:
-                    # Use the same selectors as select_first_checkbox function - simple working selectors
-                    checkbox_selectors = [
-                        "//input[@type='checkbox']",
-                        "//input[@class='ant-checkbox-input']",
-                        "//div[@class='ant-table-container']//input[@type='checkbox']",
-                        "//div[contains(@class, 'ant-table')]//input[@type='checkbox']"
-                    ]
-                    
-                    checkboxes = []
-                    for selector in checkbox_selectors:
-                        try:
-                            checkboxes = self.driver.find_elements(By.XPATH, selector)
-                            if checkboxes:
-                                logger.info(f"Found {len(checkboxes)} checkboxes with selector: {selector}")
-                                break
-                        except:
-                            continue
-                    
-                    # Count visible checkboxes properly
-                    visible_checkboxes = [cb for cb in checkboxes if cb.is_displayed()]
-                    current_case_count = len(visible_checkboxes)
+                    # Find checkboxes using the exact structure
+                    checkboxes = self.driver.find_elements(By.XPATH, "//tr[@class='ant-table-row ant-table-row-level-0']//input[@type='checkbox']")
+                    current_case_count = len(checkboxes)
                     logger.info(f"📊 Total cases found: {current_case_count}")
                     
                     # Debug: show details of each checkbox
-                    for i, cb in enumerate(visible_checkboxes):
+                    for i, cb in enumerate(checkboxes):
                         is_selected = cb.is_selected()
                         logger.info(f"  Checkbox {i+1}: selected={is_selected}")
                     
