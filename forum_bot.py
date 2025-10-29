@@ -1085,6 +1085,37 @@ class MicrosoftForumBot:
             logger.warning(f"Simulate user action failed: {e}")
             return False
     
+    def logout(self):
+        """Logout from the application"""
+        try:
+            logger.info("🔒 Attempting logout...")
+            
+            # Try to find logout button/link
+            logout_selectors = [
+                "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'logout')]",
+                "//a[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'logout')]",
+                "//button[contains(text(), 'Sign out')]",
+                "//a[contains(text(), 'Sign out')]",
+            ]
+            
+            for selector in logout_selectors:
+                try:
+                    elements = self.driver.find_elements(By.XPATH, selector)
+                    for elem in elements:
+                        if elem.is_displayed() and elem.is_enabled():
+                            elem.click()
+                            time.sleep(0.5)
+                            logger.info("✅ Logout clicked")
+                            return True
+                except:
+                    continue
+            
+            logger.warning("Logout button not found")
+            return False
+        except Exception as e:
+            logger.warning(f"Logout failed: {e}")
+            return False
+    
     def click_confirm(self):
         """
         Click the confirm button
@@ -1134,6 +1165,18 @@ class MicrosoftForumBot:
                     # If normal click fails, try JavaScript click
                     self.driver.execute_script("arguments[0].click();", confirm_button)
                     logger.info("✅ Confirm button clicked with JavaScript")
+                
+                # Task completed - logout and stop bot
+                time.sleep(1)  # Wait for confirm action to complete
+                try:
+                    self.logout()
+                    time.sleep(1)
+                except Exception as e:
+                    logger.warning(f"Logout failed: {e}")
+                
+                # Stop the bot
+                logger.info("🛑 Task completed, stopping bot...")
+                self.close()
                 
                 return True
             else:
